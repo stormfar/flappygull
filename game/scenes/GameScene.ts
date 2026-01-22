@@ -4,6 +4,8 @@ import { ObstacleGenerator } from '../systems/ObstacleGenerator';
 import { MultiplayerManager } from '../systems/MultiplayerManager';
 import { GhostSeagull } from '../entities/GhostSeagull';
 import { MatchLeaderboard } from '../ui/MatchLeaderboard';
+import { DistanceBuoy } from '../entities/DistanceBuoy';
+import { SpeedLinesSystem } from '../systems/SpeedLines';
 import { GAME_CONFIG, TOKEN, DIFFICULTY } from '../config';
 import { SeededRandom } from '../utils/SeededRandom';
 import type { MatchConfig } from '../index';
@@ -25,6 +27,22 @@ export class GameScene extends Phaser.Scene {
   private bgSky!: Phaser.GameObjects.Image;
   private bgClouds: Phaser.GameObjects.Image[] = [];
   private bgWater!: Phaser.GameObjects.TileSprite;
+
+  // Celestial body (sun/moon) system
+  private celestialBody?: Phaser.GameObjects.Graphics;
+  private celestialGlow?: Phaser.GameObjects.Graphics;
+  private currentCelestialState: 'sun' | 'sunset' | 'moon' | 'sunrise' = 'sun';
+  private skyOverlay?: Phaser.GameObjects.Rectangle;
+
+  // Wave animation
+  private waveTime: number = 0;
+
+  // Distance buoys
+  private distanceBuoys: DistanceBuoy[] = [];
+  private lastBuoyDistance: number = 0;
+
+  // Speed lines system
+  private speedLinesSystem!: SpeedLinesSystem;
 
   // Match state
   private matchTimeRemaining: number = 60000; // Default 60 seconds in milliseconds
@@ -149,6 +167,9 @@ export class GameScene extends Phaser.Scene {
     );
     this.bgWater.setAlpha(1.0); // Full opacity
 
+    // Create celestial body (sun/moon)
+    this.createCelestialBody();
+
     // Create tiling ground sprite (scrolls with game)
     const groundHeight = 64;
     this.ground = this.add.tileSprite(
@@ -178,6 +199,9 @@ export class GameScene extends Phaser.Scene {
 
     // Create obstacle generator with seeded RNG if in multiplayer mode
     this.obstacleGenerator = new ObstacleGenerator(this, this.seededRandom);
+
+    // Create speed lines system
+    this.speedLinesSystem = new SpeedLinesSystem(this);
 
     // Create UI with high depth to always be on top
     const uiDepth = 1000;
@@ -313,6 +337,146 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private createCelestialBody(): void {
+    // Create sky colour overlay (transitions with sun/moon)
+    this.skyOverlay = this.add.rectangle(
+      GAME_CONFIG.width / 2,
+      GAME_CONFIG.height / 2,
+      GAME_CONFIG.width,
+      GAME_CONFIG.height,
+      0x87CEEB, // Sky blue
+      0 // Start transparent
+    );
+    this.skyOverlay.setDepth(0.5); // Just above sky background, below clouds
+
+    // Create graphics objects for celestial body and glow
+    this.celestialGlow = this.add.graphics();
+    this.celestialBody = this.add.graphics();
+
+    // Position in top-right area
+    const x = GAME_CONFIG.width - 150;
+    const y = 120;
+
+    // Initial sun state
+    this.updateCelestialBody('sun', x, y);
+  }
+
+  private updateCelestialBody(state: 'sun' | 'sunset' | 'moon', x: number, y: number): void {
+    if (!this.celestialBody || !this.celestialGlow || !this.skyOverlay) return;
+
+    this.celestialBody.clear();
+    this.celestialGlow.clear();
+
+    const radius = 40;
+
+    if (state === 'sun') {
+      // Sun: bright yellow with warm glow
+      this.celestialGlow.fillStyle(0xFFD700, 0.3);
+      this.celestialGlow.fillCircle(x, y, radius + 20);
+
+      this.celestialBody.fillStyle(0xFFFF00, 1.0);
+      this.celestialBody.fillCircle(x, y, radius);
+
+      // Sky: clear day (no overlay)
+      this.skyOverlay.setAlpha(0);
+    } else if (state === 'sunset') {
+      // Sunset: orange-red gradient effect (multiple overlapping circles)
+      this.celestialGlow.fillStyle(0xFF6B00, 0.4);
+      this.celestialGlow.fillCircle(x, y, radius + 20);
+
+      this.celestialBody.fillStyle(0xFF4500, 1.0);
+      this.celestialBody.fillCircle(x, y, radius);
+
+      // Inner orange core
+      this.celestialBody.fillStyle(0xFFA500, 0.7);
+      this.celestialBody.fillCircle(x, y, radius * 0.6);
+
+      // Sky: orange/pink sunset tint
+      this.skyOverlay.setFillStyle(0xFF9966, 1.0);
+      this.skyOverlay.setAlpha(0.25);
+    } else {
+      // Moon: pale white-blue with subtle glow
+      this.celestialGlow.fillStyle(0xE0F2FF, 0.2);
+      this.celestialGlow.fillCircle(x, y, radius + 15);
+
+      this.celestialBody.fillStyle(0xF0F8FF, 1.0);
+      this.celestialBody.fillCircle(x, y, radius);
+
+      // Moon craters (small grey circles)
+      this.celestialBody.fillStyle(0xCCCCDD, 0.5);
+      this.celestialBody.fillCircle(x - 10, y - 8, 6);
+      this.celestialBody.fillCircle(x + 12, y + 5, 8);
+      this.celestialBody.fillCircle(x - 5, y + 12, 5);
+
+      // Sky: dark blue night tint
+      this.skyOverlay.setFillStyle(0x1a1a3e, 1.0);
+      this.skyOverlay.setAlpha(0.4);
+    }
+  }
+
+  /**
+   * Linearly interpolates between two hex colors
+   * @param color1 First color as hex (e.g., 0xFF9966)
+   * @param color2 Second color as hex (e.g., 0x1a1a3e)
+   * @param t Progress from 0 to 1
+   * @returns Interpolated color as hex
+   */
+  private lerpColor(color1: number, color2: number, t: number): number {
+    // Extract RGB components
+    const r1 = (color1 >> 16) & 0xFF;
+    const g1 = (color1 >> 8) & 0xFF;
+    const b1 = color1 & 0xFF;
+
+    const r2 = (color2 >> 16) & 0xFF;
+    const g2 = (color2 >> 8) & 0xFF;
+    const b2 = color2 & 0xFF;
+
+    // Interpolate each component
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+
+    // Combine back into hex
+    return (r << 16) | (g << 8) | b;
+  }
+
+  private createCollisionParticles(x: number, y: number, type: 'obstacle' | 'ground'): void {
+    const particleCount = type === 'obstacle' ? 12 : 8;
+    const colors = [0xFFFFFF, 0xEEEEEE, 0xCCCCCC]; // Grey/white for feathers
+
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.3;
+      const speed = 80 + Math.random() * 60;
+
+      // Create feather particle using rectangle
+      const feather = this.add.graphics();
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      feather.fillStyle(color, 1.0);
+      feather.fillRect(-3, -8, 6, 16); // Small elongated rectangle
+      feather.setPosition(x, y);
+      feather.setDepth(999);
+
+      // Random initial rotation for variety
+      const initialRotation = Math.random() * Math.PI * 2;
+      feather.setRotation(initialRotation);
+
+      // Animate outward with gravity and rotation
+      this.tweens.add({
+        targets: feather,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed + 100, // Gravity effect
+        rotation: initialRotation + (Math.random() - 0.5) * Math.PI * 4,
+        alpha: { from: 1, to: 0 },
+        scale: { from: 1, to: 0.3 },
+        duration: 800,
+        ease: 'Quad.Out',
+        onComplete: () => {
+          feather.destroy();
+        }
+      });
+    }
+  }
+
   update(_time: number, delta: number): void {
     // Always update seagull (even when game over) so death animation completes
     this.seagull.update();
@@ -412,8 +576,17 @@ export class GameScene extends Phaser.Scene {
       // Scroll water layer (0.5x speed)
       this.bgWater.tilePositionX += scrollAmount * 0.5;
 
+      // Animate waves (sine wave on Y position)
+      this.waveTime += delta / 1000;
+      const waveAmplitude = 0.5; // pixels (minimal to prevent border showing)
+      const waveFrequency = 1.2; // Hz
+      this.bgWater.tilePositionY = Math.sin(this.waveTime * waveFrequency * Math.PI * 2) * waveAmplitude;
+
       // Scroll ground (1.0x speed)
       this.ground.tilePositionX += scrollAmount;
+
+      // Update speed lines
+      this.speedLinesSystem.update(delta, this.currentScrollSpeed);
     }
 
     // Skip game logic if not in active flight
@@ -435,6 +608,8 @@ export class GameScene extends Phaser.Scene {
         this.physics.overlap(this.seagull, obstacle.topPipe) ||
         this.physics.overlap(this.seagull, obstacle.bottomPipe)
       ) {
+        // Create collision particles before ending flight
+        this.createCollisionParticles(this.seagull.x, this.seagull.y, 'obstacle');
         this.handleFlightEnd();
         return;
       }
@@ -467,6 +642,100 @@ export class GameScene extends Phaser.Scene {
     if (newMultiplier > this.currentMultiplier) {
       this.currentMultiplier = newMultiplier;
       this.showMultiplierBoost();
+    }
+
+    // Update celestial body and sky with gradual transitions
+    // Day/night cycle: 0-150m day, 150-600m sunset (450m transition), 600-750m night, 750-1200m sunrise (450m transition), then repeat
+    const cycleLength = 1200; // Full day/night cycle in meters (doubled to accommodate longer transitions)
+    const distanceInCycle = this.flightDistance % cycleLength;
+
+    const x = GAME_CONFIG.width - 150;
+    const y = 120;
+
+    // Determine current phase and transition progress
+    let skyColor = 0x87CEEB; // Default sky blue
+    let skyAlpha = 0;
+    let celestialState: 'sun' | 'sunset' | 'moon' | 'sunrise' = 'sun';
+
+    if (distanceInCycle < 150) {
+      // Day phase (0-150m)
+      celestialState = 'sun';
+      skyColor = 0x87CEEB;
+      skyAlpha = 0; // Clear sky
+    } else if (distanceInCycle < 600) {
+      // Sunset transition (150-600m) - 3x longer (450m instead of 150m)
+      celestialState = 'sunset';
+      const transitionProgress = (distanceInCycle - 150) / 450; // 0 to 1 over 450m
+
+      if (transitionProgress < 0.5) {
+        // First half: transition from clear to orange/pink
+        const firstHalfProgress = transitionProgress * 2; // 0 to 1
+        skyColor = 0xFF9966;
+        skyAlpha = firstHalfProgress * 0.3; // 0 to 0.3
+      } else {
+        // Second half: transition from orange to dark blue
+        const secondHalfProgress = (transitionProgress - 0.5) * 2; // 0 to 1
+        skyColor = this.lerpColor(0xFF9966, 0x1a1a3e, secondHalfProgress);
+        skyAlpha = 0.3 + (secondHalfProgress * 0.15); // 0.3 to 0.45
+      }
+    } else if (distanceInCycle < 750) {
+      // Night phase (600-750m) - fully dark
+      celestialState = 'moon';
+      skyColor = 0x1a1a3e;
+      skyAlpha = 0.45; // Fully dark
+    } else {
+      // Sunrise transition (750-1200m) - 3x longer (450m instead of 150m)
+      celestialState = 'sunrise';
+      const transitionProgress = (distanceInCycle - 750) / 450; // 0 to 1 over 450m
+
+      if (transitionProgress < 0.5) {
+        // First half: transition from dark blue to orange
+        const firstHalfProgress = transitionProgress * 2; // 0 to 1
+        skyColor = this.lerpColor(0x1a1a3e, 0xFF9966, firstHalfProgress);
+        skyAlpha = 0.45 - (firstHalfProgress * 0.15); // 0.45 to 0.3
+      } else {
+        // Second half: transition from orange back to clear
+        const secondHalfProgress = (transitionProgress - 0.5) * 2; // 0 to 1
+        skyColor = 0xFF9966;
+        skyAlpha = 0.3 - (secondHalfProgress * 0.3); // 0.3 to 0
+      }
+    }
+
+    // Update sky overlay with smooth transitions
+    if (this.skyOverlay) {
+      this.skyOverlay.setFillStyle(skyColor, 1.0);
+      this.skyOverlay.setAlpha(skyAlpha);
+    }
+
+    // Update celestial body only when crossing major state boundaries
+    if (celestialState !== this.currentCelestialState) {
+      this.currentCelestialState = celestialState;
+      // Map sunrise to sun and sunset/sunrise to appropriate visuals
+      const visualState = celestialState === 'sunrise' ? 'sunset' : celestialState;
+      this.updateCelestialBody(visualState, x, y);
+    }
+
+    // Spawn distance buoys every 100 metres
+    const currentMilestone = Math.floor(this.flightDistance / 100) * 100;
+    if (currentMilestone > this.lastBuoyDistance && currentMilestone > 0) {
+      this.lastBuoyDistance = currentMilestone;
+      const buoy = new DistanceBuoy(
+        this,
+        GAME_CONFIG.width + 50,
+        currentMilestone
+      );
+      this.distanceBuoys.push(buoy);
+    }
+
+    // Update and clean up buoys
+    for (let i = this.distanceBuoys.length - 1; i >= 0; i--) {
+      const buoy = this.distanceBuoys[i];
+      buoy.update(this.currentScrollSpeed, delta);
+
+      if (buoy.isOffScreen()) {
+        buoy.destroy();
+        this.distanceBuoys.splice(i, 1);
+      }
     }
 
     // Update current flight score (distance * multiplier)
@@ -664,6 +933,24 @@ export class GameScene extends Phaser.Scene {
     this.currentFlightScore = 0;
     this.currentScrollSpeed = GAME_CONFIG.scrollSpeed;
 
+    // Reset celestial body to sun
+    this.currentCelestialState = 'sun';
+    const x = GAME_CONFIG.width - 150;
+    const y = 120;
+    this.updateCelestialBody('sun', x, y);
+
+    // Reset wave animation
+    this.waveTime = 0;
+    this.bgWater.tilePositionY = 0;
+
+    // Clear distance buoys
+    this.distanceBuoys.forEach(buoy => buoy.destroy());
+    this.distanceBuoys = [];
+    this.lastBuoyDistance = 0;
+
+    // Reset speed lines
+    this.speedLinesSystem.reset();
+
     // Reset seagull
     this.seagull.reset(
       GAME_CONFIG.width * 0.2,
@@ -682,6 +969,9 @@ export class GameScene extends Phaser.Scene {
 
     this.isGameOver = true;
     this.seagull.die();
+
+    // Create collision particles at seagull position
+    this.createCollisionParticles(this.seagull.x, this.seagull.y, 'ground');
 
     // Add current flight distance to total scroll distance (for multiplayer positioning)
     this.totalScrollDistance += this.flightDistance;

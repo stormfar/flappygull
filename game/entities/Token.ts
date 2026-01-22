@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { TOKEN, GAME_CONFIG } from '../config';
+import { TOKEN } from '../config';
 
 export class Token extends Phaser.Physics.Arcade.Sprite {
   public collected: boolean = false;
@@ -43,28 +43,41 @@ export class Token extends Phaser.Physics.Arcade.Sprite {
 
     this.collected = true;
 
-    // Create sparkle particle burst effect
-    const particleCount = 8;
-    for (let i = 0; i < particleCount; i++) {
-      const angle = (Math.PI * 2 * i) / particleCount;
-      const speed = 100 + Math.random() * 50;
-      const sparkle = this.scene.add.sprite(this.x, this.y, 'star');
-      sparkle.setScale(0.3);
-      sparkle.setAlpha(1);
+    // Create enhanced sparkle particle burst effect
+    const particleCount = 16; // Doubled from 8
+    const layers = 2; // Create two layers of particles
 
-      // Animate sparkle outward
-      this.scene.tweens.add({
-        targets: sparkle,
-        x: this.x + Math.cos(angle) * speed,
-        y: this.y + Math.sin(angle) * speed,
-        alpha: 0,
-        scale: 0.1,
-        duration: 300,
-        ease: 'Power2',
-        onComplete: () => {
-          sparkle.destroy();
-        },
-      });
+    for (let layer = 0; layer < layers; layer++) {
+      const layerParticleCount = particleCount / layers;
+      const layerSpeed = layer === 0 ? 150 : 80; // Outer layer faster
+      const layerSize = layer === 0 ? 0.4 : 0.2; // Outer layer larger
+
+      for (let i = 0; i < layerParticleCount; i++) {
+        const angle = (Math.PI * 2 * i) / layerParticleCount;
+        const speed = layerSpeed + Math.random() * 30;
+
+        // Alternate between star and coin sprites for variety
+        const spriteKey = Math.random() > 0.5 ? 'star' : 'coin';
+        const sparkle = this.scene.add.sprite(this.x, this.y, spriteKey);
+        sparkle.setScale(layerSize);
+        sparkle.setAlpha(1);
+        sparkle.setTint(layer === 0 ? 0xFFFFFF : 0xFFD700); // White and gold
+
+        // Animate sparkle outward with rotation
+        this.scene.tweens.add({
+          targets: sparkle,
+          x: this.x + Math.cos(angle) * speed,
+          y: this.y + Math.sin(angle) * speed,
+          angle: Math.random() * 360,
+          alpha: 0,
+          scale: 0.05,
+          duration: 400 + Math.random() * 200,
+          ease: 'Power2',
+          onComplete: () => {
+            sparkle.destroy();
+          },
+        });
+      }
     }
 
     // Play collection animation on coin

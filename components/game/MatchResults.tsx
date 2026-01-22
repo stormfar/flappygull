@@ -10,7 +10,7 @@ interface MatchResultsProps {
   onClose: () => void;
 }
 
-export default function MatchResults({ matchId, sessionId, onClose }: MatchResultsProps) {
+export default function MatchResults({ matchId, sessionId }: MatchResultsProps) {
   const router = useRouter();
   const [results, setResults] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
