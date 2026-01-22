@@ -33,7 +33,7 @@ export default function GameInfoModal({ onClose }: GameInfoModalProps) {
               🎮 THE GAME
             </h3>
             <p className="text-gray-700" style={{ fontFamily: 'monospace' }}>
-              Guide your seagull through obstacles by tapping SPACE or clicking the screen to flap.
+              Guide your seogull through obstacles by tapping SPACE or clicking the screen to flap.
               Survive as long as possible within the time limit to rack up points!
             </p>
           </div>
@@ -107,7 +107,7 @@ export default function GameInfoModal({ onClose }: GameInfoModalProps) {
               <div className="flex items-start">
                 <span className="text-purple-500 mr-2">•</span>
                 <div>
-                  <strong>Ghost Seagulls:</strong> See other players&apos; seagulls in real-time as coloured ghosts
+                  <strong>Ghost Seogulls:</strong> See other players&apos; seogulls in real-time as coloured ghosts
                 </div>
               </div>
               <div className="flex items-start">
