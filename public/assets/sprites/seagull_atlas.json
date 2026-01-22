@@ -1,0 +1,33 @@
+{
+  "frames": {
+    "flap_1": {
+      "frame": { "x": 5, "y": 31, "w": 375, "h": 248 },
+      "sourceSize": { "w": 375, "h": 248 }
+    },
+    "flap_2": {
+      "frame": { "x": 386, "y": 34, "w": 386, "h": 241 },
+      "sourceSize": { "w": 386, "h": 241 }
+    },
+    "flap_3": {
+      "frame": { "x": 775, "y": 34, "w": 380, "h": 242 },
+      "sourceSize": { "w": 380, "h": 242 }
+    },
+    "glide": {
+      "frame": { "x": 12, "y": 347, "w": 361, "h": 235 },
+      "sourceSize": { "w": 361, "h": 235 }
+    },
+    "falling": {
+      "frame": { "x": 404, "y": 310, "w": 350, "h": 310 },
+      "sourceSize": { "w": 350, "h": 310 }
+    },
+    "death": {
+      "frame": { "x": 795, "y": 339, "w": 340, "h": 251 },
+      "sourceSize": { "w": 340, "h": 251 }
+    }
+  },
+  "meta": {
+    "image": "seagull_sprite_sheet.png",
+    "size": { "w": 1158, "h": 620 },
+    "scale": "1"
+  }
+}
