@@ -1,7 +1,12 @@
 import * as Phaser from 'phaser';
 import { Seagull } from '../entities/Seagull';
 import { ObstacleGenerator } from '../systems/ObstacleGenerator';
+import { MultiplayerManager } from '../systems/MultiplayerManager';
+import { GhostSeagull } from '../entities/GhostSeagull';
+import { MatchLeaderboard } from '../ui/MatchLeaderboard';
 import { GAME_CONFIG, TOKEN, DIFFICULTY } from '../config';
+import { SeededRandom } from '../utils/SeededRandom';
+import type { MatchConfig } from '../index';
 
 export class GameScene extends Phaser.Scene {
   private seagull!: Seagull;
@@ -22,7 +27,8 @@ export class GameScene extends Phaser.Scene {
   private bgWater!: Phaser.GameObjects.TileSprite;
 
   // Match state
-  private matchTimeRemaining: number = 60000; // 60 seconds in milliseconds
+  private matchTimeRemaining: number = 60000; // Default 60 seconds in milliseconds
+  private matchDuration: number = 60000; // Duration from match config (in milliseconds)
   private isMatchActive: boolean = false;
   private matchEnded: boolean = false;
 
@@ -41,8 +47,41 @@ export class GameScene extends Phaser.Scene {
   private bestDistance: number = 0;
   private isGameOver: boolean = false;
 
+  // Multiplayer
+  private matchConfig?: MatchConfig;
+  private seededRandom?: SeededRandom;
+  private multiplayerManager?: MultiplayerManager;
+  private ghostSeagulls: Map<string, GhostSeagull> = new Map();
+  private matchStartTime?: number; // Server timestamp when match started
+  private countdownValue: number = 0;
+  private countdownText?: Phaser.GameObjects.Text;
+  private isCountingDown: boolean = false;
+  private totalScrollDistance: number = 0; // Total distance scrolled (persists across flights)
+  private matchLeaderboard?: MatchLeaderboard; // Running leaderboard during match
+
   constructor() {
     super({ key: 'GameScene' });
+  }
+
+  public setMatchConfig(config: MatchConfig): void {
+    this.matchConfig = config;
+    this.seededRandom = new SeededRandom(config.seed);
+
+    // Set match duration from config (default to 60 seconds)
+    this.matchDuration = (config.duration || 60) * 1000; // Convert to milliseconds
+    this.matchTimeRemaining = this.matchDuration;
+
+    // Initialize multiplayer manager
+    this.multiplayerManager = new MultiplayerManager(
+      config.matchId,
+      config.sessionId,
+      config.playerName
+    );
+
+    // Connect to realtime channel
+    this.multiplayerManager.connect();
+
+    console.log('[Multiplayer] Manager initialized for match:', config.matchId, 'duration:', config.duration, 'hard mode:', config.hardMode);
   }
 
   preload(): void {
@@ -137,8 +176,8 @@ export class GameScene extends Phaser.Scene {
       this
     );
 
-    // Create obstacle generator
-    this.obstacleGenerator = new ObstacleGenerator(this);
+    // Create obstacle generator with seeded RNG if in multiplayer mode
+    this.obstacleGenerator = new ObstacleGenerator(this, this.seededRandom);
 
     // Create UI with high depth to always be on top
     const uiDepth = 1000;
@@ -231,6 +270,23 @@ export class GameScene extends Phaser.Scene {
     this.finalScoreText.setVisible(false);
     this.finalScoreText.setDepth(uiDepth);
 
+    // Countdown text (shown during multiplayer countdown)
+    this.countdownText = this.add.text(
+      GAME_CONFIG.width / 2,
+      GAME_CONFIG.height / 2,
+      '',
+      {
+        fontSize: '120px',
+        color: '#FFFFFF',
+        stroke: '#000000',
+        strokeThickness: 12,
+        fontFamily: 'monospace',
+      }
+    );
+    this.countdownText.setOrigin(0.5);
+    this.countdownText.setVisible(false);
+    this.countdownText.setDepth(uiDepth + 1);
+
     // Set up input
     this.input.keyboard?.on('keydown-SPACE', () => {
       if (!this.isMatchActive && !this.matchEnded) {
@@ -241,15 +297,85 @@ export class GameScene extends Phaser.Scene {
         this.restartFlight();
       }
     });
+
+    // Update timer text with correct duration if match config is set
+    if (this.matchConfig) {
+      const seconds = Math.ceil(this.matchDuration / 1000);
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      this.matchTimerText.setText(`${mins}:${secs.toString().padStart(2, '0')}`);
+    }
+
+    // Auto-start countdown if in multiplayer mode
+    if (this.matchConfig) {
+      console.log('[Multiplayer] Auto-starting match countdown');
+      this.startMatch();
+    }
   }
 
   update(_time: number, delta: number): void {
     // Always update seagull (even when game over) so death animation completes
     this.seagull.update();
 
-    // Update match timer if active
+    // Update ghost seagulls from multiplayer data
+    if (this.multiplayerManager) {
+      this.updateGhostSeagulls();
+
+      // Smooth interpolate all ghost positions
+      this.ghostSeagulls.forEach((ghost) => {
+        ghost.smoothUpdate();
+      });
+
+      // Update running leaderboard during active match
+      if (this.matchLeaderboard && this.isMatchActive && !this.matchEnded) {
+        const myScore = this.totalMatchScore + this.currentFlightScore;
+        this.matchLeaderboard.update(
+          this.multiplayerManager.getOtherPlayers(),
+          myScore,
+          this.matchConfig!.playerName
+        );
+      }
+    }
+
+    // Handle countdown if active
+    if (this.isCountingDown && this.matchStartTime) {
+      const timeUntilStart = this.matchStartTime - Date.now();
+      const newCountdownValue = Math.ceil(timeUntilStart / 1000);
+
+      if (newCountdownValue !== this.countdownValue) {
+        this.countdownValue = newCountdownValue;
+
+        if (this.countdownValue > 0 && this.countdownValue <= 3) {
+          // Show countdown number
+          this.countdownText!.setText(this.countdownValue.toString());
+          this.countdownText!.setVisible(true);
+
+          // Pulse animation
+          this.tweens.add({
+            targets: this.countdownText,
+            scale: { from: 0.5, to: 1.2 },
+            duration: 500,
+            ease: 'Back.Out',
+          });
+        } else if (this.countdownValue <= 0) {
+          // Countdown finished - actually start the match
+          this.countdownText!.setVisible(false);
+          this.isCountingDown = false;
+          this.actuallyStartMatch();
+        }
+      }
+    }
+
+    // Update match timer if active (use server time for synchronization)
     if (this.isMatchActive) {
-      this.matchTimeRemaining -= delta;
+      if (this.matchStartTime) {
+        // Multiplayer: calculate time from server timestamp
+        const elapsed = Date.now() - this.matchStartTime;
+        this.matchTimeRemaining = Math.max(0, this.matchDuration - elapsed);
+      } else {
+        // Single player: use delta accumulation
+        this.matchTimeRemaining -= delta;
+      }
 
       if (this.matchTimeRemaining <= 0) {
         this.endMatch();
@@ -265,8 +391,9 @@ export class GameScene extends Phaser.Scene {
 
     // Scroll parallax layers
     if (this.isMatchActive && !this.isGameOver) {
-      // Increase speed every 50 metres (10% increase each time)
-      const speedMultiplier = 1 + Math.floor(this.flightDistance / 50) * 0.1;
+      // Increase speed every 50 metres (20% normal, 40% hard mode)
+      const speedIncreaseRate = this.matchConfig?.hardMode ? 0.4 : 0.2;
+      const speedMultiplier = 1 + Math.floor(this.flightDistance / 50) * speedIncreaseRate;
       this.currentScrollSpeed = Math.min(
         GAME_CONFIG.scrollSpeed * speedMultiplier,
         DIFFICULTY.MAX_SPEED
@@ -349,22 +476,81 @@ export class GameScene extends Phaser.Scene {
     this.updateScoreDisplay();
   }
 
-  private startMatch(): void {
+  private async startMatch(): Promise<void> {
+    // Hide start text
+    this.startText.setVisible(false);
+
+    // In multiplayer mode, fetch the server start time and show countdown
+    if (this.matchConfig) {
+      console.log('[Multiplayer] Fetching match start time...');
+
+      // Dynamically import supabase to avoid SSR issues
+      const { supabase } = await import('@/lib/supabase');
+
+      const { data, error } = await supabase
+        .from('matches')
+        .select('started_at')
+        .eq('id', this.matchConfig.matchId)
+        .single();
+
+      if (error || !data?.started_at) {
+        console.error('[Multiplayer] Failed to fetch match start time:', error);
+        return;
+      }
+
+      // Calculate match start time (3 second countdown from server started_at)
+      const serverStartTime = new Date(data.started_at).getTime();
+      this.matchStartTime = serverStartTime + 3000; // 3 second countdown
+
+      console.log('[Multiplayer] Match will start at:', new Date(this.matchStartTime));
+
+      // Start countdown
+      this.isCountingDown = true;
+      this.countdownValue = 3;
+    } else {
+      // Single player - start immediately
+      this.actuallyStartMatch();
+    }
+  }
+
+  private actuallyStartMatch(): void {
+    console.log('[Game] Match starting now!');
+
     this.isMatchActive = true;
     this.matchEnded = false;
-    this.matchTimeRemaining = 60000; // Reset to 60 seconds
+    this.matchTimeRemaining = this.matchDuration; // Use duration from config
     this.totalMatchScore = 0;
     this.lastFlightScore = 0;
     this.bestFlightScore = 0;
+    this.totalScrollDistance = 0; // Reset scroll distance for multiplayer positioning
 
-    // Hide start text
-    this.startText.setVisible(false);
+    // Create running leaderboard in top-right if in multiplayer
+    if (this.multiplayerManager && this.matchConfig) {
+      console.log('[Multiplayer] Creating running leaderboard');
+      this.matchLeaderboard = new MatchLeaderboard(
+        this,
+        GAME_CONFIG.width - 300,
+        20,
+        this.matchConfig.sessionId
+      );
+    }
+
+    // Start broadcasting position if in multiplayer
+    if (this.multiplayerManager) {
+      console.log('[Multiplayer] Starting position broadcast');
+      this.multiplayerManager.startBroadcasting(() => ({
+        scrollDistance: this.flightDistance, // Broadcast current position only (not cumulative)
+        y: this.seagull.y,
+        isAlive: !this.seagull.getIsDead(),
+        currentScore: this.totalMatchScore + this.currentFlightScore, // Send total score for leaderboard
+      }));
+    }
 
     // Start first flight
     this.restartFlight();
   }
 
-  private endMatch(): void {
+  private async endMatch(): Promise<void> {
     this.isMatchActive = false;
     this.matchEnded = true;
     this.isGameOver = true;
@@ -372,17 +558,74 @@ export class GameScene extends Phaser.Scene {
     // Stop the seagull
     this.seagull.die();
 
+    // Destroy running leaderboard
+    if (this.matchLeaderboard) {
+      this.matchLeaderboard.destroy();
+      this.matchLeaderboard = undefined;
+    }
+
+    // Stop broadcasting and disconnect from multiplayer
+    if (this.multiplayerManager) {
+      this.multiplayerManager.stopBroadcasting();
+      this.multiplayerManager.disconnect();
+    }
+
+    // Submit score to leaderboard if in multiplayer (don't wait for it)
+    if (this.matchConfig) {
+      // Submit score in background (don't block results from showing)
+      this.submitScoreToLeaderboard().catch(err => {
+        console.error('[Game] Failed to submit score:', err);
+      });
+
+      // Call onMatchEnd callback to show results overlay immediately
+      if (this.matchConfig.onMatchEnd) {
+        // Small delay to ensure score submission starts first
+        setTimeout(() => {
+          if (this.matchConfig?.onMatchEnd) {
+            this.matchConfig.onMatchEnd(this.matchConfig.matchId);
+          }
+        }, 100);
+      }
+    }
+
     // Show final score
-    this.finalScoreText.setText(`Final Score: ${this.totalMatchScore}\n\nPress SPACE to Play Again`);
+    this.finalScoreText.setText(`Final Score: ${this.totalMatchScore}\n\nBest Flight: ${this.bestFlightScore}m\n\nPress ESC for Results`);
     this.finalScoreText.setVisible(true);
 
     // Hide match timer
     this.matchTimerText.setVisible(false);
   }
 
+  private async submitScoreToLeaderboard(): Promise<void> {
+    if (!this.matchConfig) return;
+
+    try {
+      console.log('[Game] Submitting score to leaderboard...');
+      const { supabase } = await import('@/lib/supabase');
+
+      const { error } = await supabase
+        .from('leaderboard')
+        .insert({
+          match_id: this.matchConfig.matchId,
+          session_id: this.matchConfig.sessionId,
+          player_name: this.matchConfig.playerName,
+          total_score: this.totalMatchScore,
+          best_flight: this.bestFlightScore,
+        });
+
+      if (error) {
+        console.error('[Game] Error submitting score:', error);
+      } else {
+        console.log('[Game] Score submitted successfully');
+      }
+    } catch (err) {
+      console.error('[Game] Error submitting score:', err);
+    }
+  }
+
   private resetMatch(): void {
     // Reset all match state
-    this.matchTimeRemaining = 60000;
+    this.matchTimeRemaining = this.matchDuration;
     this.totalMatchScore = 0;
     this.lastFlightScore = 0;
     this.bestFlightScore = 0;
@@ -398,7 +641,10 @@ export class GameScene extends Phaser.Scene {
 
     // Show match timer again
     this.matchTimerText.setVisible(true);
-    this.matchTimerText.setText('1:00');
+    const seconds = Math.ceil(this.matchDuration / 1000);
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    this.matchTimerText.setText(`${mins}:${secs.toString().padStart(2, '0')}`);
 
     // Reset seagull to initial position
     this.seagull.reset(
@@ -437,6 +683,9 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = true;
     this.seagull.die();
 
+    // Add current flight distance to total scroll distance (for multiplayer positioning)
+    this.totalScrollDistance += this.flightDistance;
+
     // Add current flight score to total match score
     this.totalMatchScore += this.currentFlightScore;
 
@@ -453,6 +702,9 @@ export class GameScene extends Phaser.Scene {
       this.bestDistance = Math.floor(this.flightDistance);
       localStorage.setItem('flappygull_best_distance', this.bestDistance.toString());
     }
+
+    // IMPORTANT: Reset flightDistance immediately to prevent double-counting in broadcasts
+    this.flightDistance = 0;
 
     // Update UI
     this.updateScoreDisplay();
@@ -567,4 +819,54 @@ export class GameScene extends Phaser.Scene {
       }
     });
   }
+
+  private updateGhostSeagulls(): void {
+    if (!this.multiplayerManager) return;
+
+    const otherPlayers = this.multiplayerManager.getOtherPlayers();
+
+    // Debug: Log player count occasionally
+    if (this.time.now % 2000 < 50) {
+      console.log('[Multiplayer] Other players:', otherPlayers.size, 'Ghost seagulls:', this.ghostSeagulls.size);
+    }
+
+    // Calculate current player's position (current flight distance only)
+    const myCurrentDistance = this.flightDistance;
+
+    // Update existing ghosts and create new ones
+    otherPlayers.forEach((position, sessionId) => {
+      let ghost = this.ghostSeagulls.get(sessionId);
+
+      // Calculate screen X position relative to current player's position
+      // scroll_distance now represents current position (not cumulative), so this is simpler
+      const relativeDistance = position.scroll_distance - myCurrentDistance;
+      const screenX = this.seagull.x + relativeDistance * 10; // 1 meter = 10 pixels (matches scrollSpeed/10)
+
+      if (!ghost) {
+        // Create new ghost seagull with unique color
+        console.log('[Multiplayer] Creating ghost for player:', position.player_name, 'at distance:', position.scroll_distance);
+        ghost = new GhostSeagull(
+          this,
+          sessionId,
+          position.player_name,
+          screenX,
+          position.y
+        );
+        this.ghostSeagulls.set(sessionId, ghost);
+      } else {
+        // Update existing ghost
+        ghost.updatePosition(screenX, position.y, position.is_alive);
+      }
+    });
+
+    // Remove ghosts for players who disconnected
+    this.ghostSeagulls.forEach((ghost, sessionId) => {
+      if (!otherPlayers.has(sessionId)) {
+        console.log('[Multiplayer] Removing ghost for disconnected player:', sessionId);
+        ghost.destroy();
+        this.ghostSeagulls.delete(sessionId);
+      }
+    });
+  }
 }
+

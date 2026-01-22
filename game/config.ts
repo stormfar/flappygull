@@ -16,15 +16,15 @@ export const PHASER_CONFIG: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 800,
-    height: 600,
+    width: 1600,
+    height: 900,
   },
 };
 
 // Game constants
 export const GAME_CONFIG: GameConfig = {
-  width: 800,
-  height: 600,
+  width: 1600,
+  height: 900,
   gravity: 800,
   flapPower: -350,
   scrollSpeed: 200,

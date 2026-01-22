@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { OBSTACLE, GAME_CONFIG } from '../config';
+import { SeededRandom } from '../utils/SeededRandom';
 
 export class Obstacle {
   public topPipe: Phaser.GameObjects.TileSprite;
@@ -10,12 +11,17 @@ export class Obstacle {
     scene: Phaser.Scene,
     x: number,
     gapY: number,
-    gapSize: number
+    gapSize: number,
+    rng?: SeededRandom
   ) {
-    // Randomly choose villa style for variety
+    // Choose villa style deterministically if RNG provided, otherwise random
     const villaStyles = ['villa_tile', 'villa_tile_alt', 'villa_tile_alt2'];
-    const topStyle = villaStyles[Math.floor(Math.random() * villaStyles.length)];
-    const bottomStyle = villaStyles[Math.floor(Math.random() * villaStyles.length)];
+    const topStyle = rng
+      ? villaStyles[rng.between(0, villaStyles.length - 1)]
+      : villaStyles[Math.floor(Math.random() * villaStyles.length)];
+    const bottomStyle = rng
+      ? villaStyles[rng.between(0, villaStyles.length - 1)]
+      : villaStyles[Math.floor(Math.random() * villaStyles.length)];
 
     // Create top pipe using tiled villa sprite
     const topHeight = gapY - gapSize / 2;

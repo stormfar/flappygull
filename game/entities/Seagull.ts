@@ -178,8 +178,10 @@ export class Seagull extends Phaser.Physics.Arcade.Sprite {
   }
 
   destroy(fromScene?: boolean): void {
-    // Clean up input listeners
-    this.scene.input.off('pointerdown', this.flap, this);
+    // Clean up input listeners (check if scene.input exists)
+    if (this.scene && this.scene.input) {
+      this.scene.input.off('pointerdown', this.flap, this);
+    }
     super.destroy(fromScene);
   }
 }
