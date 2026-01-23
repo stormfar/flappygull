@@ -33,6 +33,7 @@ export class GameScene extends Phaser.Scene {
   private celestialGlow?: Phaser.GameObjects.Graphics;
   private currentCelestialState: 'sun' | 'sunset' | 'moon' | 'sunrise' = 'sun';
   private skyOverlay?: Phaser.GameObjects.Rectangle;
+  private celestialDelayDistance: number = 0; // Distance to delay before celestial transitions start (30 seconds worth)
 
   // Wave animation
   private waveTime: number = 0;
@@ -52,6 +53,7 @@ export class GameScene extends Phaser.Scene {
 
   // Flight state (current attempt)
   private flightDistance: number = 0;
+  private cumulativeMatchDistance: number = 0; // Total distance across all flights in the match
   private currentMultiplier: number = 1;
 
   // Match score
@@ -636,6 +638,7 @@ export class GameScene extends Phaser.Scene {
     // Update flight distance (based on time alive)
     const distanceGained = (delta / 1000) * (GAME_CONFIG.scrollSpeed / 10);
     this.flightDistance += distanceGained;
+    this.cumulativeMatchDistance += distanceGained; // Track cumulative distance across all flights
 
     // Calculate multiplier based on distance milestones (every 100m)
     const newMultiplier = 1 + Math.floor(this.flightDistance / 100);
@@ -646,8 +649,10 @@ export class GameScene extends Phaser.Scene {
 
     // Update celestial body and sky with gradual transitions
     // Day/night cycle: 0-150m day, 150-600m sunset (450m transition), 600-750m night, 750-1200m sunrise (450m transition), then repeat
+    // Apply delay so celestial states don't start changing until after initial delay distance (using cumulative distance across all flights)
+    const effectiveDistance = Math.max(0, this.cumulativeMatchDistance - this.celestialDelayDistance);
     const cycleLength = 1200; // Full day/night cycle in meters (doubled to accommodate longer transitions)
-    const distanceInCycle = this.flightDistance % cycleLength;
+    const distanceInCycle = effectiveDistance % cycleLength;
 
     const x = GAME_CONFIG.width - 150;
     const y = 120;
@@ -792,6 +797,12 @@ export class GameScene extends Phaser.Scene {
     this.lastFlightScore = 0;
     this.bestFlightScore = 0;
     this.totalScrollDistance = 0; // Reset scroll distance for multiplayer positioning
+    this.cumulativeMatchDistance = 0; // Reset cumulative distance for celestial cycle
+    
+    // Initialize celestial delay: equivalent to ~30 seconds of distance at base scroll speed
+    // Distance per second = GAME_CONFIG.scrollSpeed / 10
+    const distancePerSecond = GAME_CONFIG.scrollSpeed / 10;
+    this.celestialDelayDistance = distancePerSecond * 30; // ~30 seconds worth of distance
 
     // Create running leaderboard in top-right if in multiplayer
     if (this.multiplayerManager && this.matchConfig) {
@@ -898,6 +909,7 @@ export class GameScene extends Phaser.Scene {
     this.totalMatchScore = 0;
     this.lastFlightScore = 0;
     this.bestFlightScore = 0;
+    this.cumulativeMatchDistance = 0; // Reset cumulative distance
     this.isMatchActive = false;
     this.matchEnded = false;
 
