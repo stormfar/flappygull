@@ -11,6 +11,12 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
   private smoothingFactor: number = 0.3; // Higher = smoother but more lag, lower = snappier but jerkier
   private wasAlive: boolean = true; // Track previous alive state to detect death/respawn
   private isFadingOut: boolean = false; // Track if currently fading out
+  private previousY: number = 0; // Track previous Y position for velocity calculation
+  private previousYTime: number = 0; // Track when previous Y was recorded
+  private currentVelocityY: number = 0; // Current vertical velocity
+  private smoothedVelocityY: number = 0; // Smoothed velocity to prevent flickering
+  private lastAnimationChange: number = 0; // Timestamp of last animation change
+  private animationChangeDelay: number = 150; // Minimum time between animation changes (ms)
 
   constructor(
     scene: Phaser.Scene,
@@ -33,6 +39,47 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
     this.sprite.setScale(0.2);
     this.sprite.setAlpha(0.6); // Semi-transparent
     this.sprite.setTint(this.tintColor);
+
+    // Initialize animations if they don't exist (reuse from Seagull entity)
+    if (!scene.anims.exists('seagull_flap')) {
+      scene.anims.create({
+        key: 'seagull_flap',
+        frames: [
+          { key: 'seagull', frame: 'flap_1' },
+          { key: 'seagull', frame: 'flap_2' },
+          { key: 'seagull', frame: 'flap_3' },
+          { key: 'seagull', frame: 'flap_2' }, // Back to middle
+        ],
+        frameRate: 10,
+        repeat: -1,
+      });
+
+      scene.anims.create({
+        key: 'seagull_glide',
+        frames: [{ key: 'seagull', frame: 'glide' }],
+        frameRate: 1,
+      });
+
+      scene.anims.create({
+        key: 'seagull_falling',
+        frames: [{ key: 'seagull', frame: 'falling' }],
+        frameRate: 1,
+      });
+
+      scene.anims.create({
+        key: 'seagull_death',
+        frames: [{ key: 'seagull', frame: 'death' }],
+        frameRate: 1,
+        repeat: 0,
+      });
+    }
+
+    // Start with glide animation
+    this.sprite.play('seagull_glide');
+    
+    // Initialize position tracking
+    this.previousY = y;
+    this.previousYTime = Date.now();
 
     // Create name label above the ghost
     this.nameText = scene.add.text(0, -40, playerName, {
@@ -120,13 +167,40 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
   }
 
   public updatePosition(x: number, y: number, isAlive: boolean): void {
-    this.lastUpdate = Date.now();
+    const now = Date.now();
+    this.lastUpdate = now;
+
+    // Calculate velocity from Y position changes with smoothing
+    if (this.previousYTime > 0 && isAlive && !this.isFadingOut) {
+      const deltaTime = (now - this.previousYTime) / 1000; // Convert to seconds
+      if (deltaTime > 0 && deltaTime < 1) { // Only calculate if reasonable time delta
+        // Calculate velocity: pixels per second
+        const instantVelocity = (y - this.previousY) / deltaTime;
+        this.currentVelocityY = instantVelocity;
+        
+        // Smooth the velocity to prevent flickering (exponential moving average)
+        // Use stronger smoothing (0.3) to reduce rapid changes
+        const smoothingFactor = 0.3;
+        if (this.smoothedVelocityY === 0) {
+          // First calculation - use instant velocity
+          this.smoothedVelocityY = instantVelocity;
+        } else {
+          // Smooth with exponential moving average
+          this.smoothedVelocityY = this.smoothedVelocityY * (1 - smoothingFactor) + instantVelocity * smoothingFactor;
+        }
+      }
+    } else if (this.previousYTime === 0) {
+      // First update - initialize
+      this.smoothedVelocityY = 0;
+    }
+    this.previousY = y;
+    this.previousYTime = now;
 
     // Detect death (transition from alive to dead)
     if (this.wasAlive && !isAlive) {
       // Just died - start fade out animation
       this.isFadingOut = true;
-      this.sprite.setFrame('death');
+      this.sprite.play('seagull_death');
 
       // Fade out over 500ms
       this.scene.tweens.add({
@@ -144,8 +218,11 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
       this.setPosition(x, y);
       this.targetX = x;
       this.targetY = y;
-      this.sprite.setFrame('glide');
+      this.sprite.play('seagull_glide');
       this.sprite.setTint(this.tintColor);
+      this.currentVelocityY = 0; // Reset velocity on respawn
+      this.smoothedVelocityY = 0; // Reset smoothed velocity on respawn
+      this.lastAnimationChange = now; // Reset animation change timer
 
       // Fade in over 300ms
       this.scene.tweens.add({
@@ -158,6 +235,8 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
         }
       });
     }
+
+    // Don't update animation here - do it in smoothUpdate() to prevent flickering
 
     // Update target position (for smooth interpolation)
     if (isAlive && !this.isFadingOut) {
@@ -176,6 +255,7 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
 
   /**
    * Smooth interpolation towards target position (call from scene update)
+   * Also updates animation based on smoothed velocity
    */
   public smoothUpdate(): void {
     // Don't interpolate while fading out or when dead
@@ -191,6 +271,34 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
     const newY = currentY + (this.targetY - currentY) * this.smoothingFactor;
 
     this.setPosition(newX, newY);
+
+    // Update animation based on smoothed velocity (same logic as local Seagull)
+    // Only check animation changes every 150ms to prevent flickering
+    const now = Date.now();
+    if ((now - this.lastAnimationChange) >= this.animationChangeDelay) {
+      const currentAnim = this.sprite.anims.getName();
+      const velocity = this.smoothedVelocityY; // Use smoothed velocity
+      
+      if (velocity < -100) {
+        // Going up fast - show flapping
+        if (currentAnim !== 'seagull_flap') {
+          this.sprite.play('seagull_flap');
+          this.lastAnimationChange = now;
+        }
+      } else if (velocity > 150) {
+        // Falling fast - show falling sprite
+        if (currentAnim !== 'seagull_falling') {
+          this.sprite.play('seagull_falling');
+          this.lastAnimationChange = now;
+        }
+      } else if (velocity >= -100 && velocity <= 150) {
+        // Gliding - show glide sprite
+        if (currentAnim !== 'seagull_glide') {
+          this.sprite.play('seagull_glide');
+          this.lastAnimationChange = now;
+        }
+      }
+    }
   }
 
   public getLastUpdateTime(): number {

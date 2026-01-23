@@ -85,10 +85,10 @@ function MultiplayerGame() {
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-900 relative">
-      {/* Home button overlay - top right */}
+      {/* Home button overlay - top left to avoid leaderboard overlap */}
       <button
         onClick={handleGoHome}
-        className="absolute top-4 right-4 z-50 rounded border-4 border-gray-800 bg-red-500 px-4 py-2 text-lg font-black text-white transition-all hover:bg-red-400 hover:scale-105 active:scale-95 shadow-[4px_4px_0_rgba(0,0,0,0.3)]"
+        className="absolute top-4 left-4 z-50 rounded border-4 border-gray-800 bg-red-500 px-4 py-2 text-lg font-black text-white transition-all hover:bg-red-400 hover:scale-105 active:scale-95 shadow-[4px_4px_0_rgba(0,0,0,0.3)]"
         style={{ fontFamily: 'monospace' }}
         title="Return to Home"
       >

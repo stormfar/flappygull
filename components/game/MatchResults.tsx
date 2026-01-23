@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase, type LeaderboardEntry } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import BeachBackground from '@/components/lobby/BeachBackground';
 
 interface MatchResultsProps {
   matchId: string;
@@ -14,13 +15,31 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
   const router = useRouter();
   const [results, setResults] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [displayedResults, setDisplayedResults] = useState<LeaderboardEntry[]>([]);
+  const [revealedPlayers, setRevealedPlayers] = useState<Set<string>>(new Set());
+  const [playerPositions, setPlayerPositions] = useState<Map<string, number>>(new Map());
+  const [isShuffling, setIsShuffling] = useState(false);
+  const [animationComplete, setAnimationComplete] = useState(false);
 
   useEffect(() => {
+    // Reset all state when matchId changes
+    setResults([]);
+    setDisplayedResults([]);
+    setRevealedPlayers(new Set());
+    setPlayerPositions(new Map());
+    setIsShuffling(false);
+    setAnimationComplete(false);
+    setLoading(true);
+    
+    let animationFrameId: number | null = null;
+    let shuffleIntervalId: NodeJS.Timeout | null = null;
+    
     const fetchResults = async () => {
       try {
         // Add a small delay to ensure score submissions have time to complete
         await new Promise(resolve => setTimeout(resolve, 800));
 
+        // Fetch results - deduplicate by session_id to prevent duplicate players
         const { data, error } = await supabase
           .from('leaderboard')
           .select('*')
@@ -29,10 +48,127 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
 
         if (error) {
           console.error('Error fetching match results - table may not exist:', error);
-          // Show empty results if table doesn't exist
           setResults([]);
+          setDisplayedResults([]);
         } else {
-          setResults(data || []);
+          // Deduplicate: keep only the highest score entry per session_id
+          const deduplicated = new Map<string, LeaderboardEntry>();
+          (data || []).forEach(entry => {
+            const existing = deduplicated.get(entry.session_id);
+            if (!existing || entry.total_score > existing.total_score) {
+              deduplicated.set(entry.session_id, entry);
+            }
+          });
+          const sortedResults = Array.from(deduplicated.values()).sort((a, b) => b.total_score - a.total_score);
+          console.log('[MatchResults] Setting results:', sortedResults.length, 'players');
+          setResults(sortedResults);
+          
+          // Start with shuffled order and hidden scores
+          const shuffled = [...sortedResults].sort(() => Math.random() - 0.5);
+          console.log('[MatchResults] Starting with shuffled order, scores hidden');
+          setDisplayedResults(shuffled);
+          setRevealedPlayers(new Set()); // Ensure scores are hidden
+          setIsShuffling(true); // Enable CSS transitions for shuffle phase
+          
+          // Phase 1: CSS transition-based shuffle - 1.5 seconds with smooth transitions
+          const shuffleDuration = 1500;
+          const shuffleStartTime = Date.now();
+          let shuffleCount = 0;
+          const maxShuffles = 8; // Number of shuffle steps
+          
+          shuffleIntervalId = setInterval(() => {
+            shuffleCount++;
+            // Create a new shuffle with CSS transitions
+            const newShuffle = [...sortedResults].sort(() => Math.random() - 0.5);
+            setDisplayedResults(newShuffle);
+            
+            // Update positions for visual effect with CSS transitions
+            const shufflePositions = new Map<string, number>();
+            newShuffle.forEach((result, index) => {
+              const finalIndex = sortedResults.findIndex(r => r.id === result.id);
+              const rowHeight = 88;
+              const offset = (index - finalIndex) * rowHeight;
+              shufflePositions.set(result.id, offset);
+            });
+            setPlayerPositions(shufflePositions);
+            
+            const elapsed = Date.now() - shuffleStartTime;
+            if (elapsed >= shuffleDuration || shuffleCount >= maxShuffles) {
+              if (shuffleIntervalId) {
+                clearInterval(shuffleIntervalId);
+                shuffleIntervalId = null;
+              }
+              
+              // Get the final shuffle state
+              const finalShuffle = [...sortedResults].sort(() => Math.random() - 0.5);
+              setIsShuffling(false); // Disable CSS transitions for smooth settle
+              
+              // Phase 2: Smooth settle into final positions - faster animation
+              console.log('[MatchResults] Starting smooth settle animation');
+              
+              const settleDuration = 1500; // 1.5 seconds to settle (faster)
+              const settleStartTime = Date.now();
+              
+              // Create position map for smooth animation
+              const animationMap = new Map<string, { startIndex: number; targetIndex: number }>();
+              sortedResults.forEach((result, index) => {
+                const startIndex = finalShuffle.findIndex(r => r.id === result.id);
+                animationMap.set(result.id, { startIndex, targetIndex: index });
+              });
+              
+              const animateSettle = () => {
+                const elapsed = Date.now() - settleStartTime;
+                const progress = Math.min(elapsed / settleDuration, 1);
+                
+                // Ease out function for smooth animation
+                const easedProgress = 1 - Math.pow(1 - progress, 3);
+                
+                // Calculate current positions
+                const positions: Array<{ result: LeaderboardEntry; position: number }> = [];
+                animationMap.forEach(({ startIndex, targetIndex }, id) => {
+                  const result = sortedResults.find(r => r.id === id)!;
+                  const currentPosition = startIndex + (targetIndex - startIndex) * easedProgress;
+                  positions.push({ result, position: currentPosition });
+                });
+                
+                // Sort by current position
+                positions.sort((a, b) => a.position - b.position);
+                const currentOrder = positions.map(p => p.result);
+                
+                // Store pixel positions
+                const pixelPositions = new Map<string, number>();
+                positions.forEach(({ result, position }) => {
+                  const finalIndex = sortedResults.findIndex(r => r.id === result.id);
+                  const rowHeight = 88;
+                  const offset = (position - finalIndex) * rowHeight;
+                  pixelPositions.set(result.id, offset);
+                });
+                
+                setDisplayedResults([...currentOrder]);
+                setPlayerPositions(new Map(pixelPositions));
+                
+                // Don't reveal scores during animation - only at the end
+                
+                if (progress < 1) {
+                  animationFrameId = requestAnimationFrame(animateSettle);
+                } else {
+                  // Animation complete - NOW reveal all scores and show result text
+                  console.log('[MatchResults] Animation complete - revealing scores');
+                  setDisplayedResults(sortedResults);
+                  setRevealedPlayers(new Set(sortedResults.map(r => r.id)));
+                  setPlayerPositions(new Map());
+                  setAnimationComplete(true);
+                }
+              };
+              
+              // Start settle animation
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  animationFrameId = requestAnimationFrame(animateSettle);
+                });
+              });
+            }
+          }, shuffleDuration / maxShuffles); // Space out shuffles for CSS transitions
         }
       } catch (err) {
         console.error('Error fetching match results:', err);
@@ -43,6 +179,16 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
     };
 
     fetchResults();
+    
+    // Cleanup function
+    return () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      if (shuffleIntervalId !== null) {
+        clearInterval(shuffleIntervalId);
+      }
+    };
   }, [matchId]);
 
   const myRank = results.findIndex(r => r.session_id === sessionId) + 1;
@@ -61,8 +207,22 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
-        <div className="text-white text-2xl font-bold" style={{ fontFamily: 'monospace' }}>
+      <div 
+        className="fixed z-50 flex items-center justify-center p-4 sm:p-8" 
+        style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0,
+          width: '100vw',
+          height: '100vh',
+          margin: 0,
+          padding: '1rem',
+        }}
+      >
+        <BeachBackground />
+        <div className="relative z-10 text-white text-2xl font-bold drop-shadow-lg" style={{ fontFamily: 'monospace' }}>
           LOADING RESULTS...
         </div>
       </div>
@@ -70,37 +230,59 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4">
-      {/* Celebration confetti effect */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {[...Array(20)].map((_, i) => (
+    <div 
+      className="fixed z-50 flex items-center justify-center p-4 sm:p-8" 
+      style={{ 
+        position: 'fixed', 
+        top: 0, 
+        left: 0, 
+        right: 0, 
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        margin: 0,
+        padding: '1rem',
+      }}
+    >
+      {/* Beach background */}
+      <BeachBackground />
+      {/* Subtle celebration effect - just a couple of emojis */}
+      <div className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 11 }}>
+        {[...Array(3)].map((_, i) => (
           <div
             key={i}
-            className="absolute text-4xl animate-bounce"
+            className="absolute text-3xl animate-bounce"
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${-50 + Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 2}s`,
-              animationDuration: `${2 + Math.random() * 2}s`,
+              left: `${20 + i * 30}%`,
+              top: `${10 + i * 15}%`,
+              animationDelay: `${i * 0.5}s`,
+              animationDuration: '2s',
             }}
           >
-            {['🎉', '🎊', '⭐', '✨', '🏆'][Math.floor(Math.random() * 5)]}
+            {['🎉', '⭐', '🏆'][i]}
           </div>
         ))}
       </div>
 
-      <div className="relative w-full max-w-2xl bg-white rounded-lg border-4 border-gray-800 shadow-2xl overflow-hidden">
+      <div 
+        className="relative z-10 bg-white rounded-lg border-4 border-gray-800 shadow-2xl overflow-visible" 
+        style={{ 
+          width: '100%',
+          maxWidth: '56rem',
+          margin: '0 auto',
+        }}
+      >
         {/* Header */}
-        <div className="bg-gradient-to-r from-yellow-400 to-orange-500 p-6 border-b-4 border-gray-800">
-          <h1 className="text-center text-4xl font-black text-white" style={{ fontFamily: 'monospace' }}>
+        <div className="bg-gradient-to-r from-yellow-400 to-orange-500 p-6 border-b-4 border-gray-800 overflow-visible">
+          <h1 className="text-center text-4xl font-black text-white whitespace-nowrap" style={{ fontFamily: 'monospace' }}>
             🏁 MATCH COMPLETE! 🏁
           </h1>
-          {myRank === 1 && (
-            <p className="text-center text-2xl font-bold text-white mt-2" style={{ fontFamily: 'monospace' }}>
+          {animationComplete && myRank === 1 && (
+            <p className="text-center text-2xl font-bold text-white mt-2 whitespace-nowrap" style={{ fontFamily: 'monospace' }}>
               🎉 YOU WON! 🎉
             </p>
           )}
-          {myResult && myRank > 1 && (
+          {animationComplete && myResult && myRank > 1 && (
             <p className="text-center text-xl font-bold text-white mt-2" style={{ fontFamily: 'monospace' }}>
               YOU PLACED #{myRank}
             </p>
@@ -122,27 +304,42 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {results.map((result, index) => {
-              const rank = index + 1;
+            <div className="relative" style={{ minHeight: `${results.length * 88}px`, position: 'relative' }}>
+              {displayedResults.length > 0 && displayedResults.map((result) => {
+              // Find the actual rank in the sorted results
+              const actualRank = results.findIndex(r => r.id === result.id) + 1;
               const isMe = result.session_id === sessionId;
+              const isRevealed = revealedPlayers.has(result.id);
+              
+              // Get position offset for smooth animation
+              const positionOffset = playerPositions.get(result.id) || 0;
+              const targetIndex = results.findIndex(r => r.id === result.id);
+              const targetY = targetIndex * 88; // 88px per row (80px height + 8px gap)
 
               return (
                 <div
                   key={result.id}
-                  className={`rounded border-4 px-4 py-3 flex items-center justify-between ${
+                  className={`absolute left-0 right-0 rounded border-4 px-4 py-3 flex items-center justify-between ${
                     isMe
                       ? 'border-yellow-600 bg-yellow-100 shadow-[4px_4px_0_rgba(0,0,0,0.3)]'
-                      : rank <= 3
+                      : actualRank <= 3
                       ? 'border-gray-800 bg-white shadow-[2px_2px_0_rgba(0,0,0,0.2)]'
                       : 'border-gray-600 bg-gray-50'
                   }`}
+                  style={{
+                    top: `${targetY}px`,
+                    transform: `translateY(${positionOffset}px)`,
+                    opacity: isRevealed ? 1 : 0.8,
+                    width: 'calc(100% - 0px)',
+                    willChange: 'transform', // Optimize for animation
+                    transition: isShuffling ? 'transform 0.3s ease-out' : 'none', // CSS transition only during shuffle
+                  }}
                 >
                   <div className="flex items-center space-x-4">
                     {/* Rank */}
                     <div className="w-12 text-center">
                       <span className="text-2xl font-black" style={{ fontFamily: 'monospace' }}>
-                        {getRankEmoji(rank)}
+                        {isRevealed ? getRankEmoji(actualRank) : '?'}
                       </span>
                     </div>
 
@@ -152,20 +349,34 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
                         {result.player_name}
                         {isMe && <span className="ml-2 text-sm">(YOU)</span>}
                       </p>
-                      <p className="text-sm text-gray-600" style={{ fontFamily: 'monospace' }}>
-                        Best Flight: {result.best_flight}m
-                      </p>
+                      {isRevealed ? (
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'monospace' }}>
+                          Best Flight: {result.best_flight}m
+                        </p>
+                      ) : (
+                        <p className="text-sm text-gray-400" style={{ fontFamily: 'monospace' }}>
+                          ???
+                        </p>
+                      )}
                     </div>
                   </div>
 
                   {/* Score */}
                   <div className="text-right">
-                    <p className={`text-3xl font-black ${isMe ? 'text-yellow-900' : 'text-gray-900'}`} style={{ fontFamily: 'monospace' }}>
-                      {result.total_score}
-                    </p>
-                    <p className="text-xs text-gray-500" style={{ fontFamily: 'monospace' }}>
-                      TOTAL
-                    </p>
+                    {isRevealed ? (
+                      <>
+                        <p className={`text-3xl font-black ${isMe ? 'text-yellow-900' : 'text-gray-900'}`} style={{ fontFamily: 'monospace' }}>
+                          {result.total_score}
+                        </p>
+                        <p className="text-xs text-gray-500" style={{ fontFamily: 'monospace' }}>
+                          TOTAL
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-3xl font-black text-gray-300" style={{ fontFamily: 'monospace' }}>
+                        ???
+                      </p>
+                    )}
                   </div>
                 </div>
               );
