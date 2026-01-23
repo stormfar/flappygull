@@ -5,6 +5,7 @@ import { supabase, type Match, type MatchPlayer, type LeaderboardEntry } from '@
 import { v4 as uuidv4 } from 'uuid';
 import FlyingSeagulls from './FlyingSeagull';
 import GameInfoModal from './GameInfoModal';
+import BeachBackground from './BeachBackground';
 
 interface LobbyScreenProps {
   onStartGame: (matchId: string, seed: number, playerName: string, sessionId: string, duration?: number, hardMode?: boolean) => void;
@@ -324,18 +325,12 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
 
   if (view === 'menu') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 via-sky-400 to-amber-200 relative overflow-hidden">
+      <div className="flex min-h-screen items-center justify-center relative overflow-hidden">
+        {/* Beach background with sprites */}
+        <BeachBackground />
+
         {/* Flying seagulls animation */}
         <FlyingSeagulls />
-
-        {/* Beach/water decoration */}
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-amber-600 via-amber-400 to-transparent opacity-40"></div>
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-blue-400 opacity-30"></div>
-
-        {/* Floating clouds */}
-        <div className="absolute top-20 left-10 w-24 h-12 bg-white rounded-full opacity-70 blur-sm"></div>
-        <div className="absolute top-32 right-20 w-32 h-14 bg-white rounded-full opacity-60 blur-sm"></div>
-        <div className="absolute top-40 left-1/3 w-28 h-12 bg-white rounded-full opacity-50 blur-sm"></div>
 
         <div className="w-full max-w-6xl relative z-10 px-4">
           {/* Pixelated game logo */}
@@ -504,17 +499,12 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
 
   if (view === 'create') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 via-sky-400 to-amber-200 relative overflow-hidden">
+      <div className="flex min-h-screen items-center justify-center relative overflow-hidden">
+        {/* Beach background with sprites */}
+        <BeachBackground />
+
         {/* Flying seagulls animation */}
         <FlyingSeagulls />
-
-        {/* Beach/water decoration */}
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-amber-600 via-amber-400 to-transparent opacity-40"></div>
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-blue-400 opacity-30"></div>
-
-        {/* Floating clouds */}
-        <div className="absolute top-20 left-10 w-24 h-12 bg-white rounded-full opacity-70 blur-sm"></div>
-        <div className="absolute top-32 right-20 w-32 h-14 bg-white rounded-full opacity-60 blur-sm"></div>
 
         <div className="w-full max-w-md space-y-6 relative z-10 px-4">
           <div className="bg-white rounded-lg shadow-2xl border-4 border-gray-800 overflow-hidden">
@@ -622,17 +612,12 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
 
   if (view === 'join') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 via-sky-400 to-amber-200 relative overflow-hidden">
+      <div className="flex min-h-screen items-center justify-center relative overflow-hidden">
+        {/* Beach background with sprites */}
+        <BeachBackground />
+
         {/* Flying seagulls animation */}
         <FlyingSeagulls />
-
-        {/* Beach/water decoration */}
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-amber-600 via-amber-400 to-transparent opacity-40"></div>
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-blue-400 opacity-30"></div>
-
-        {/* Floating clouds */}
-        <div className="absolute top-20 left-10 w-24 h-12 bg-white rounded-full opacity-70 blur-sm"></div>
-        <div className="absolute top-32 right-20 w-32 h-14 bg-white rounded-full opacity-60 blur-sm"></div>
 
         <div className="w-full max-w-md space-y-6 relative z-10 px-4">
           <div className="bg-white rounded-lg shadow-2xl border-4 border-gray-800 overflow-hidden">
@@ -709,17 +694,12 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
 
   if (view === 'waiting') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 via-sky-400 to-amber-200 relative overflow-hidden">
+      <div className="flex min-h-screen items-center justify-center relative overflow-hidden">
+        {/* Beach background with sprites */}
+        <BeachBackground />
+
         {/* Flying seagulls animation */}
         <FlyingSeagulls />
-
-        {/* Beach/water decoration */}
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-amber-600 via-amber-400 to-transparent opacity-40"></div>
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-blue-400 opacity-30"></div>
-
-        {/* Floating clouds */}
-        <div className="absolute top-20 left-10 w-24 h-12 bg-white rounded-full opacity-70 blur-sm"></div>
-        <div className="absolute top-32 right-20 w-32 h-14 bg-white rounded-full opacity-60 blur-sm"></div>
 
         <div className="w-full max-w-2xl space-y-6 relative z-10 px-4">
           <div className="bg-white rounded-lg shadow-2xl border-4 border-gray-800 overflow-hidden">
