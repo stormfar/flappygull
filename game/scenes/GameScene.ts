@@ -840,7 +840,7 @@ export class GameScene extends Phaser.Scene {
     this.bestFlightScore = 0;
     this.totalScrollDistance = 0; // Reset scroll distance for multiplayer positioning
     this.cumulativeMatchDistance = 0; // Reset cumulative distance for celestial cycle
-    
+
     // Initialize celestial delay: equivalent to ~30 seconds of distance at base scroll speed
     // Distance per second = GAME_CONFIG.scrollSpeed / 10
     const distancePerSecond = GAME_CONFIG.scrollSpeed / 10;
@@ -881,15 +881,15 @@ export class GameScene extends Phaser.Scene {
     // This ensures the last flight's score is captured even if match ends while bird is still flying
     if (this.currentFlightScore > 0) {
       this.totalMatchScore += this.currentFlightScore;
-      
+
       // Update best flight score if this was better
       if (this.currentFlightScore > this.bestFlightScore) {
         this.bestFlightScore = this.currentFlightScore;
       }
-      
+
       // Update last flight score
       this.lastFlightScore = this.currentFlightScore;
-      
+
       console.log(`[Game] Match ended - adding current flight score ${this.currentFlightScore} to total. New total: ${this.totalMatchScore}`);
     }
 

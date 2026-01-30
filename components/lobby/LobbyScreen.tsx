@@ -114,7 +114,7 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
 
             // Start game when match becomes active
             if (updatedMatch.status === 'active') {
-              onStartGame(updatedMatch.id, updatedMatch.seed, playerName, sessionId, updatedMatch.duration, updatedMatch.hard_mode, updatedMatch.started_at);
+              onStartGame(updatedMatch.id, updatedMatch.seed, playerName, sessionId, updatedMatch.duration, updatedMatch.hard_mode, updatedMatch.started_at ?? undefined);
             }
           }
         }
