@@ -80,13 +80,13 @@ export default function GameInfoModal({ onClose }: GameInfoModalProps) {
               <div className="flex items-start">
                 <span className="text-red-500 mr-2">•</span>
                 <div>
-                  <strong>Normal Mode:</strong> Game speed increases by 20% every 50 metres
+                  <strong>Normal Mode:</strong> Game speed steadily increases as you fly further
                 </div>
               </div>
               <div className="flex items-start">
                 <span className="text-red-500 mr-2">•</span>
                 <div>
-                  <strong>Hard Mode:</strong> Game speed increases by 40% every 50 metres (for the truly brave!)
+                  <strong>Hard Mode:</strong> Game speed increases at double the rate (for the truly brave!)
                 </div>
               </div>
             </div>

@@ -11,6 +11,7 @@ function PracticeGame() {
 
   useEffect(() => {
     const playerName = searchParams.get('playerName');
+    const hardMode = searchParams.get('hardMode') === 'true';
 
     if (!playerName) {
       console.error('Missing player name');
@@ -23,10 +24,19 @@ function PracticeGame() {
       if (typeof window === 'undefined') return;
 
       const { initGame } = await import('@/game');
+      const { v4: uuidv4 } = await import('uuid');
 
       if (gameContainerRef.current && !gameInstanceRef.current) {
-        // Create a practice game without match config (no multiplayer, no leaderboard)
-        gameInstanceRef.current = initGame('game-container');
+        // Create a minimal match config for practice mode to enable hard mode
+        const practiceConfig = hardMode ? {
+          matchId: 'practice',
+          seed: Date.now(),
+          playerName,
+          sessionId: uuidv4(),
+          hardMode: true,
+        } : undefined;
+
+        gameInstanceRef.current = initGame('game-container', practiceConfig);
       }
     };
 
@@ -72,10 +82,12 @@ function PracticeGame() {
 
       {/* Practice mode indicator */}
       <div
-        className="absolute top-4 left-4 z-50 rounded border-4 border-gray-800 bg-blue-500 px-4 py-2 text-lg font-black text-white shadow-[4px_4px_0_rgba(0,0,0,0.3)]"
+        className={`absolute top-4 left-4 z-50 rounded border-4 border-gray-800 px-4 py-2 text-lg font-black text-white shadow-[4px_4px_0_rgba(0,0,0,0.3)] ${
+          searchParams.get('hardMode') === 'true' ? 'bg-red-500' : 'bg-blue-500'
+        }`}
         style={{ fontFamily: 'monospace' }}
       >
-        🎯 PRACTICE MODE
+        {searchParams.get('hardMode') === 'true' ? '🔥 PRACTICE HARD' : '🎯 PRACTICE MODE'}
       </div>
 
       <div

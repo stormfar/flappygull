@@ -22,8 +22,14 @@ export class ObstacleGenerator {
   public update(delta: number, scrollSpeed: number = GAME_CONFIG.scrollSpeed): void {
     this.timeSinceLastSpawn += delta;
 
+    // Calculate dynamic spawn interval with partial spacing increase
+    // Allow gap to increase with speed, but only at 50% the natural rate
+    const speedFactor = scrollSpeed / GAME_CONFIG.scrollSpeed;
+    const targetSpacing = GAME_CONFIG.obstacleSpacing * (1 + (speedFactor - 1) * 0.5);
+    const dynamicSpawnInterval = (targetSpacing / scrollSpeed) * 1000;
+
     // Spawn new obstacle if enough time has passed
-    if (this.timeSinceLastSpawn >= OBSTACLE.SPAWN_INTERVAL) {
+    if (this.timeSinceLastSpawn >= dynamicSpawnInterval) {
       this.spawnObstacle();
       this.timeSinceLastSpawn = 0;
     }

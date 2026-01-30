@@ -9,6 +9,7 @@ export interface MatchConfig {
   sessionId: string;
   duration?: number; // Match duration in seconds (default 60)
   hardMode?: boolean; // Hard mode: 20% speed increase instead of 10%
+  startedAt?: string; // ISO timestamp when match started
   onMatchEnd?: (matchId: string) => void;
 }
 

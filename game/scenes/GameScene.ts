@@ -6,6 +6,7 @@ import { GhostSeagull } from '../entities/GhostSeagull';
 import { MatchLeaderboard } from '../ui/MatchLeaderboard';
 import { DistanceBuoy } from '../entities/DistanceBuoy';
 import { SpeedLinesSystem } from '../systems/SpeedLines';
+import { SpecialSpritesSystem } from '../systems/SpecialSpritesSystem';
 import { GAME_CONFIG, TOKEN, DIFFICULTY } from '../config';
 import { SeededRandom } from '../utils/SeededRandom';
 import type { MatchConfig } from '../index';
@@ -44,6 +45,9 @@ export class GameScene extends Phaser.Scene {
 
   // Speed lines system
   private speedLinesSystem!: SpeedLinesSystem;
+
+  // Special sprites system (group and Andrii)
+  private specialSpritesSystem!: SpecialSpritesSystem;
 
   // Match state
   private matchTimeRemaining: number = 60000; // Default 60 seconds in milliseconds
@@ -130,6 +134,10 @@ export class GameScene extends Phaser.Scene {
     // Load token sprites
     this.load.image('coin', '/assets/sprites/items/coin.png');
     this.load.image('star', '/assets/sprites/items/star.png');
+
+    // Load special sprites
+    this.load.image('group', '/assets/sprites/group.png');
+    this.load.image('andrii', '/assets/sprites/andrii.png');
   }
 
   create(): void {
@@ -204,6 +212,9 @@ export class GameScene extends Phaser.Scene {
 
     // Create speed lines system
     this.speedLinesSystem = new SpeedLinesSystem(this);
+
+    // Create special sprites system
+    this.specialSpritesSystem = new SpecialSpritesSystem(this, this.seededRandom);
 
     // Create UI with high depth to always be on top
     const uiDepth = 1000;
@@ -324,16 +335,19 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // Update timer text with correct duration if match config is set
-    if (this.matchConfig) {
+    // Update timer text with correct duration if match config is set (but not for practice mode)
+    if (this.matchConfig && this.matchConfig.matchId !== 'practice') {
       const seconds = Math.ceil(this.matchDuration / 1000);
       const mins = Math.floor(seconds / 60);
       const secs = seconds % 60;
       this.matchTimerText.setText(`${mins}:${secs.toString().padStart(2, '0')}`);
+    } else {
+      // Practice mode or no match config - hide timer
+      this.matchTimerText.setVisible(false);
     }
 
-    // Auto-start countdown if in multiplayer mode
-    if (this.matchConfig) {
+    // Auto-start countdown if in multiplayer mode (not practice)
+    if (this.matchConfig && this.matchConfig.matchId !== 'practice') {
       console.log('[Multiplayer] Auto-starting match countdown');
       this.startMatch();
     }
@@ -532,14 +546,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update match timer if active (use server time for synchronization)
-    if (this.isMatchActive) {
+    // Update match timer if active (only in multiplayer mode, not practice)
+    if (this.isMatchActive && this.matchConfig && this.matchConfig.matchId !== 'practice') {
       if (this.matchStartTime) {
         // Multiplayer: calculate time from server timestamp
         const elapsed = Date.now() - this.matchStartTime;
         this.matchTimeRemaining = Math.max(0, this.matchDuration - elapsed);
       } else {
-        // Single player: use delta accumulation
+        // Multiplayer without server time: use delta accumulation
         this.matchTimeRemaining -= delta;
       }
 
@@ -557,13 +571,11 @@ export class GameScene extends Phaser.Scene {
 
     // Scroll parallax layers
     if (this.isMatchActive && !this.isGameOver) {
-      // Increase speed every 50 metres (20% normal, 40% hard mode)
-      const speedIncreaseRate = this.matchConfig?.hardMode ? 0.4 : 0.2;
-      const speedMultiplier = 1 + Math.floor(this.flightDistance / 50) * speedIncreaseRate;
-      this.currentScrollSpeed = Math.min(
-        GAME_CONFIG.scrollSpeed * speedMultiplier,
-        DIFFICULTY.MAX_SPEED
-      );
+      // Linear speed increase: add fixed amount every 50 metres
+      // Normal: +15 pixels per 50m, Hard: +30 pixels per 50m
+      const speedIncreasePerInterval = this.matchConfig?.hardMode ? 30 : 15;
+      const speedIncreaseCount = Math.floor(this.flightDistance / 50);
+      this.currentScrollSpeed = GAME_CONFIG.scrollSpeed + (speedIncreasePerInterval * speedIncreaseCount);
 
       const scrollAmount = this.currentScrollSpeed * (delta / 1000);
 
@@ -589,6 +601,9 @@ export class GameScene extends Phaser.Scene {
 
       // Update speed lines
       this.speedLinesSystem.update(delta, this.currentScrollSpeed);
+
+      // Update special sprites
+      this.specialSpritesSystem.update(delta, this.currentScrollSpeed);
     }
 
     // Skip game logic if not in active flight
@@ -619,6 +634,17 @@ export class GameScene extends Phaser.Scene {
       // Mark obstacle as passed
       if (!obstacle.passed && this.seagull.x > obstacle.getX()) {
         obstacle.passed = true;
+      }
+    }
+
+    // Check collisions with Andrii sprites
+    const andriiSprites = this.specialSpritesSystem.getAndriiSprites();
+    for (const andriiSprite of andriiSprites) {
+      if (this.physics.overlap(this.seagull, andriiSprite)) {
+        // Create collision particles before ending flight
+        this.createCollisionParticles(this.seagull.x, this.seagull.y, 'obstacle');
+        this.handleFlightEnd();
+        return;
       }
     }
 
@@ -754,35 +780,51 @@ export class GameScene extends Phaser.Scene {
     // Hide start text
     this.startText.setVisible(false);
 
-    // In multiplayer mode, fetch the server start time and show countdown
-    if (this.matchConfig) {
-      console.log('[Multiplayer] Fetching match start time...');
+    // Check if this is practice mode (matchId === 'practice')
+    const isPracticeMode = this.matchConfig?.matchId === 'practice';
 
-      // Dynamically import supabase to avoid SSR issues
-      const { supabase } = await import('@/lib/supabase');
+    // In multiplayer mode (not practice), use the server start time and show countdown
+    if (this.matchConfig && !isPracticeMode) {
+      // Use startedAt from matchConfig if provided, otherwise fetch it (fallback for legacy)
+      if (this.matchConfig.startedAt) {
+        console.log('[Multiplayer] Using provided match start time:', this.matchConfig.startedAt);
 
-      const { data, error } = await supabase
-        .from('matches')
-        .select('started_at')
-        .eq('id', this.matchConfig.matchId)
-        .single();
+        // Calculate match start time (3 second countdown from server started_at)
+        const serverStartTime = new Date(this.matchConfig.startedAt).getTime();
+        this.matchStartTime = serverStartTime + 3000; // 3 second countdown
 
-      if (error || !data?.started_at) {
-        console.error('[Multiplayer] Failed to fetch match start time:', error);
-        return;
+        console.log('[Multiplayer] Match will start at:', new Date(this.matchStartTime));
+
+        // Start countdown
+        this.isCountingDown = true;
+        this.countdownValue = 3;
+      } else {
+        // Fallback: fetch from database if not provided (shouldn't happen normally)
+        console.log('[Multiplayer] Fetching match start time from database...');
+
+        const { supabase } = await import('@/lib/supabase');
+
+        const { data, error } = await supabase
+          .from('matches')
+          .select('started_at')
+          .eq('id', this.matchConfig.matchId)
+          .single();
+
+        if (error || !data?.started_at) {
+          console.error('[Multiplayer] Failed to fetch match start time:', error);
+          return;
+        }
+
+        const serverStartTime = new Date(data.started_at).getTime();
+        this.matchStartTime = serverStartTime + 3000;
+
+        console.log('[Multiplayer] Match will start at:', new Date(this.matchStartTime));
+
+        this.isCountingDown = true;
+        this.countdownValue = 3;
       }
-
-      // Calculate match start time (3 second countdown from server started_at)
-      const serverStartTime = new Date(data.started_at).getTime();
-      this.matchStartTime = serverStartTime + 3000; // 3 second countdown
-
-      console.log('[Multiplayer] Match will start at:', new Date(this.matchStartTime));
-
-      // Start countdown
-      this.isCountingDown = true;
-      this.countdownValue = 3;
     } else {
-      // Single player - start immediately
+      // Practice mode or single player - start immediately
       this.actuallyStartMatch();
     }
   }
@@ -804,8 +846,8 @@ export class GameScene extends Phaser.Scene {
     const distancePerSecond = GAME_CONFIG.scrollSpeed / 10;
     this.celestialDelayDistance = distancePerSecond * 30; // ~30 seconds worth of distance
 
-    // Create running leaderboard in top-right if in multiplayer
-    if (this.multiplayerManager && this.matchConfig) {
+    // Create running leaderboard in top-right if in multiplayer (not practice mode)
+    if (this.multiplayerManager && this.matchConfig && this.matchConfig.matchId !== 'practice') {
       console.log('[Multiplayer] Creating running leaderboard');
       this.matchLeaderboard = new MatchLeaderboard(
         this,
@@ -835,6 +877,22 @@ export class GameScene extends Phaser.Scene {
     this.matchEnded = true;
     this.isGameOver = true;
 
+    // IMPORTANT: Add current flight score to total before ending match
+    // This ensures the last flight's score is captured even if match ends while bird is still flying
+    if (this.currentFlightScore > 0) {
+      this.totalMatchScore += this.currentFlightScore;
+      
+      // Update best flight score if this was better
+      if (this.currentFlightScore > this.bestFlightScore) {
+        this.bestFlightScore = this.currentFlightScore;
+      }
+      
+      // Update last flight score
+      this.lastFlightScore = this.currentFlightScore;
+      
+      console.log(`[Game] Match ended - adding current flight score ${this.currentFlightScore} to total. New total: ${this.totalMatchScore}`);
+    }
+
     // Stop the seagull
     this.seagull.die();
 
@@ -850,8 +908,8 @@ export class GameScene extends Phaser.Scene {
       this.multiplayerManager.disconnect();
     }
 
-    // Submit score to leaderboard if in multiplayer (don't wait for it)
-    if (this.matchConfig) {
+    // Submit score to leaderboard if in multiplayer (don't wait for it, skip for practice mode)
+    if (this.matchConfig && this.matchConfig.matchId !== 'practice') {
       // Submit score in background (don't block results from showing)
       this.submitScoreToLeaderboard().catch(err => {
         console.error('[Game] Failed to submit score:', err);
@@ -916,6 +974,9 @@ export class GameScene extends Phaser.Scene {
     // Reset obstacles
     this.obstacleGenerator.reset();
 
+    // Reset special sprites
+    this.specialSpritesSystem.reset();
+
     // Hide final score, show start text
     this.finalScoreText.setVisible(false);
     this.startText.setVisible(true);
@@ -971,6 +1032,9 @@ export class GameScene extends Phaser.Scene {
 
     // Clear obstacles to give player a fresh start
     this.obstacleGenerator.reset();
+
+    // Clear special sprites to give player a fresh start
+    this.specialSpritesSystem.reset();
 
     // Update UI
     this.updateScoreDisplay();

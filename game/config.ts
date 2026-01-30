@@ -29,7 +29,7 @@ export const GAME_CONFIG: GameConfig = {
   flapPower: -350,
   scrollSpeed: 200,
   obstacleSpacing: 300,
-  obstacleGapSize: 180,
+  obstacleGapSize: 200,
 };
 
 // Physics constants
@@ -56,7 +56,7 @@ export const TOKEN = {
 
 export const DIFFICULTY = {
   GAP_DECREASE_RATE: 2, // pixels per obstacle
-  MIN_GAP: 120,
+  MIN_GAP: 100,
   SPEED_INCREASE_RATE: 5, // pixels per 20 obstacles
   MAX_SPEED: 300,
 };

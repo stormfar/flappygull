@@ -8,7 +8,7 @@ import GameInfoModal from './GameInfoModal';
 import BeachBackground from './BeachBackground';
 
 interface LobbyScreenProps {
-  onStartGame: (matchId: string, seed: number, playerName: string, sessionId: string, duration?: number, hardMode?: boolean) => void;
+  onStartGame: (matchId: string, seed: number, playerName: string, sessionId: string, duration?: number, hardMode?: boolean, startedAt?: string) => void;
   onStartPractice?: (playerName: string) => void;
 }
 
@@ -30,8 +30,13 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
   const [matchDuration, setMatchDuration] = useState(60); // Default 1 minute
   const [hardMode, setHardMode] = useState(false);
 
+  // Practice mode settings
+  const [practiceHardMode, setPracticeHardMode] = useState(false);
+
   // Global leaderboard
   const [globalLeaderboard, setGlobalLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardDuration, setLeaderboardDuration] = useState(120); // Default to 2 minutes
+  const [leaderboardHardMode, setLeaderboardHardMode] = useState(false); // Default to normal mode
 
   // Info modal
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -44,12 +49,14 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
     }
   }, []);
 
-  // Fetch global leaderboard on mount
+  // Fetch global leaderboard when filters change
   useEffect(() => {
     const fetchLeaderboard = async () => {
       const { data, error } = await supabase
         .from('leaderboard')
-        .select('*')
+        .select('*, matches!inner(duration, hard_mode)')
+        .eq('matches.duration', leaderboardDuration)
+        .eq('matches.hard_mode', leaderboardHardMode)
         .order('total_score', { ascending: false })
         .limit(10);
 
@@ -59,7 +66,7 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
     };
 
     fetchLeaderboard();
-  }, []);
+  }, [leaderboardDuration, leaderboardHardMode]);
 
   // Save player name to localStorage when it changes
   const handlePlayerNameChange = (name: string) => {
@@ -107,7 +114,7 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
 
             // Start game when match becomes active
             if (updatedMatch.status === 'active') {
-              onStartGame(updatedMatch.id, updatedMatch.seed, playerName, sessionId, updatedMatch.duration, updatedMatch.hard_mode);
+              onStartGame(updatedMatch.id, updatedMatch.seed, playerName, sessionId, updatedMatch.duration, updatedMatch.hard_mode, updatedMatch.started_at);
             }
           }
         }
@@ -351,7 +358,7 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
             </div>
             <div className="flex items-center justify-center gap-3">
               <p className="text-white text-xl font-bold drop-shadow-lg" style={{ fontFamily: 'monospace' }}>
-                🌊 Multiplayer Race 🌊
+                How does it look like?
               </p>
               <button
                 onClick={() => setShowInfoModal(true)}
@@ -414,12 +421,29 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
                 </button>
 
                 <button
-                  onClick={() => window.location.href = `/game/practice?playerName=${encodeURIComponent(playerName)}`}
+                  onClick={() => window.location.href = `/game/practice?playerName=${encodeURIComponent(playerName)}&hardMode=${practiceHardMode}`}
                   disabled={!playerName.trim()}
-                  className="w-full rounded border-4 border-gray-800 bg-blue-500 px-6 py-4 text-xl font-black text-white transition-all hover:bg-blue-400 hover:scale-105 active:scale-95 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-[4px_4px_0_rgba(0,0,0,0.3)]"
+                  className="w-full rounded border-4 border-gray-800 bg-blue-500 px-6 py-4 text-xl font-black text-white transition-all hover:bg-blue-400 hover:scale-105 active:scale-95 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-[4px_4px_0_rgba(0,0,0,0.3)] flex items-center justify-between"
                   style={{ fontFamily: 'monospace' }}
                 >
-                  🎯 PRACTICE MODE
+                  <span>🎯 PRACTICE MODE</span>
+                  <div className="flex items-center gap-2 ml-4">
+                    <span className="text-sm">🔥 Hard Mode</span>
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPracticeHardMode(!practiceHardMode);
+                      }}
+                      className={`rounded border-2 px-2 py-1 text-sm font-black transition-all hover:scale-105 cursor-pointer ${
+                        practiceHardMode
+                          ? 'border-white bg-white text-blue-600'
+                          : 'border-white bg-blue-600 text-white'
+                      }`}
+                      style={{ fontFamily: 'monospace' }}
+                    >
+                      {practiceHardMode ? 'ON' : 'OFF'}
+                    </div>
+                  </div>
                 </button>
               </div>
             </div>
@@ -428,9 +452,35 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
           {/* Global Leaderboard */}
           <div className="bg-white rounded-lg shadow-2xl border-4 border-gray-800 overflow-hidden">
             <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 border-b-4 border-gray-800">
-              <h2 className="text-white text-center text-2xl font-bold" style={{ fontFamily: 'monospace' }}>
+              <h2 className="text-white text-center text-2xl font-bold mb-3" style={{ fontFamily: 'monospace' }}>
                 🏆 TOP 10 ALL-TIME 🏆
               </h2>
+              {/* Filters */}
+              <div className="flex gap-3 justify-center">
+                {/* Duration Dropdown */}
+                <select
+                  value={leaderboardDuration}
+                  onChange={(e) => setLeaderboardDuration(Number(e.target.value))}
+                  className="flex-1 rounded border-2 border-white bg-white px-3 py-2 text-sm font-black text-purple-600 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white"
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  <option value={30}>⏱️ 30 seconds</option>
+                  <option value={60}>⏱️ 1 minute</option>
+                  <option value={90}>⏱️ 1.5 minutes</option>
+                  <option value={120}>⏱️ 2 minutes</option>
+                </select>
+
+                {/* Difficulty Dropdown */}
+                <select
+                  value={leaderboardHardMode ? 'hard' : 'normal'}
+                  onChange={(e) => setLeaderboardHardMode(e.target.value === 'hard')}
+                  className="flex-1 rounded border-2 border-white bg-white px-3 py-2 text-sm font-black text-purple-600 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white"
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  <option value="normal">⚡ Normal</option>
+                  <option value="hard">🔥 Hard</option>
+                </select>
+              </div>
             </div>
 
             <div className="p-4 bg-gradient-to-b from-purple-50 to-pink-50 max-h-96 overflow-y-auto">
@@ -555,7 +605,7 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
                       🔥 HARD MODE
                     </p>
                     <p className="text-xs text-gray-600 mt-1" style={{ fontFamily: 'monospace' }}>
-                      20% speed increase (vs 10%)
+                      Speed increases at double the rate
                     </p>
                   </div>
                   <button

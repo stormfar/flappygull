@@ -22,6 +22,7 @@ function MultiplayerGame() {
     const currentSessionId = searchParams.get('sessionId');
     const duration = searchParams.get('duration');
     const hardMode = searchParams.get('hardMode');
+    const startedAt = searchParams.get('startedAt');
 
     if (!matchId || !seed || !playerName || !currentSessionId) {
       console.error('Missing match configuration');
@@ -38,6 +39,7 @@ function MultiplayerGame() {
       sessionId: currentSessionId,
       duration: duration ? parseInt(duration, 10) : undefined,
       hardMode: hardMode === 'true',
+      startedAt: startedAt || undefined,
       onMatchEnd: (matchId: string) => {
         setCompletedMatchId(matchId);
         setShowResults(true);

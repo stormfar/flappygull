@@ -8,7 +8,7 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
   private tintColor: number;
   private targetX: number;
   private targetY: number;
-  private smoothingFactor: number = 0.3; // Higher = smoother but more lag, lower = snappier but jerkier
+  private smoothingFactor: number = 0.15; // Lower = smoother movement but more desync, higher = snappier but jerkier
   private wasAlive: boolean = true; // Track previous alive state to detect death/respawn
   private isFadingOut: boolean = false; // Track if currently fading out
   private previousY: number = 0; // Track previous Y position for velocity calculation
@@ -198,7 +198,10 @@ export class GhostSeagull extends Phaser.GameObjects.Container {
 
     // Detect death (transition from alive to dead)
     if (this.wasAlive && !isAlive) {
-      // Just died - start fade out animation
+      // Just died - snap to target position to show death at correct location
+      this.setPosition(this.targetX, this.targetY);
+
+      // Start fade out animation
       this.isFadingOut = true;
       this.sprite.play('seagull_death');
 

@@ -30,10 +30,10 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
     setIsShuffling(false);
     setAnimationComplete(false);
     setLoading(true);
-    
+
     let animationFrameId: number | null = null;
     let shuffleIntervalId: NodeJS.Timeout | null = null;
-    
+
     const fetchResults = async () => {
       try {
         // Add a small delay to ensure score submissions have time to complete
@@ -62,67 +62,70 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
           const sortedResults = Array.from(deduplicated.values()).sort((a, b) => b.total_score - a.total_score);
           console.log('[MatchResults] Setting results:', sortedResults.length, 'players');
           setResults(sortedResults);
-          
+
           // Start with shuffled order and hidden scores
           const shuffled = [...sortedResults].sort(() => Math.random() - 0.5);
-          console.log('[MatchResults] Starting with shuffled order, scores hidden');
           setDisplayedResults(shuffled);
           setRevealedPlayers(new Set()); // Ensure scores are hidden
           setIsShuffling(true); // Enable CSS transitions for shuffle phase
-          
-          // Phase 1: CSS transition-based shuffle - 1.5 seconds with smooth transitions
-          const shuffleDuration = 1500;
+
+          // Phase 1: Gentle drumroll – fewer steps, longer interval, longer transition
+          // so each move completes smoothly instead of overlapping
+          const shuffleDuration = 2800;
           const shuffleStartTime = Date.now();
           let shuffleCount = 0;
-          const maxShuffles = 8; // Number of shuffle steps
-          
+          const maxShuffles = 4;
+          const shuffleIntervalMs = 700; // Time between each shuffle step
+          let lastOrder: LeaderboardEntry[] = shuffled;
+
           shuffleIntervalId = setInterval(() => {
             shuffleCount++;
-            // Create a new shuffle with CSS transitions
-            const newShuffle = [...sortedResults].sort(() => Math.random() - 0.5);
-            setDisplayedResults(newShuffle);
-            
-            // Update positions for visual effect with CSS transitions
+            // Softer shuffle: swap 1–2 adjacent pairs so movement is subtle, not chaotic
+            const newOrder = [...lastOrder];
+            for (let s = 0; s < 2; s++) {
+              const i = Math.floor(Math.random() * Math.max(1, newOrder.length - 1));
+              if (i < newOrder.length - 1) {
+                [newOrder[i], newOrder[i + 1]] = [newOrder[i + 1], newOrder[i]];
+              }
+            }
+            lastOrder = newOrder;
+            setDisplayedResults(newOrder);
+
             const shufflePositions = new Map<string, number>();
-            newShuffle.forEach((result, index) => {
+            const rowHeight = 88;
+            newOrder.forEach((result, index) => {
               const finalIndex = sortedResults.findIndex(r => r.id === result.id);
-              const rowHeight = 88;
               const offset = (index - finalIndex) * rowHeight;
               shufflePositions.set(result.id, offset);
             });
             setPlayerPositions(shufflePositions);
-            
+
             const elapsed = Date.now() - shuffleStartTime;
             if (elapsed >= shuffleDuration || shuffleCount >= maxShuffles) {
               if (shuffleIntervalId) {
                 clearInterval(shuffleIntervalId);
                 shuffleIntervalId = null;
               }
-              
-              // Get the final shuffle state
-              const finalShuffle = [...sortedResults].sort(() => Math.random() - 0.5);
+
+              const finalShuffle = lastOrder;
               setIsShuffling(false); // Disable CSS transitions for smooth settle
-              
-              // Phase 2: Smooth settle into final positions - faster animation
-              console.log('[MatchResults] Starting smooth settle animation');
-              
-              const settleDuration = 1500; // 1.5 seconds to settle (faster)
+
+              // Phase 2: Smooth settle into final positions
+              const settleDuration = 1800;
               const settleStartTime = Date.now();
-              
-              // Create position map for smooth animation
               const animationMap = new Map<string, { startIndex: number; targetIndex: number }>();
               sortedResults.forEach((result, index) => {
                 const startIndex = finalShuffle.findIndex(r => r.id === result.id);
                 animationMap.set(result.id, { startIndex, targetIndex: index });
               });
-              
+
               const animateSettle = () => {
                 const elapsed = Date.now() - settleStartTime;
                 const progress = Math.min(elapsed / settleDuration, 1);
-                
+
                 // Ease out function for smooth animation
                 const easedProgress = 1 - Math.pow(1 - progress, 3);
-                
+
                 // Calculate current positions
                 const positions: Array<{ result: LeaderboardEntry; position: number }> = [];
                 animationMap.forEach(({ startIndex, targetIndex }, id) => {
@@ -130,11 +133,11 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
                   const currentPosition = startIndex + (targetIndex - startIndex) * easedProgress;
                   positions.push({ result, position: currentPosition });
                 });
-                
+
                 // Sort by current position
                 positions.sort((a, b) => a.position - b.position);
                 const currentOrder = positions.map(p => p.result);
-                
+
                 // Store pixel positions
                 const pixelPositions = new Map<string, number>();
                 positions.forEach(({ result, position }) => {
@@ -143,24 +146,22 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
                   const offset = (position - finalIndex) * rowHeight;
                   pixelPositions.set(result.id, offset);
                 });
-                
+
                 setDisplayedResults([...currentOrder]);
                 setPlayerPositions(new Map(pixelPositions));
-                
+
                 // Don't reveal scores during animation - only at the end
-                
+
                 if (progress < 1) {
                   animationFrameId = requestAnimationFrame(animateSettle);
                 } else {
-                  // Animation complete - NOW reveal all scores and show result text
-                  console.log('[MatchResults] Animation complete - revealing scores');
                   setDisplayedResults(sortedResults);
                   setRevealedPlayers(new Set(sortedResults.map(r => r.id)));
                   setPlayerPositions(new Map());
                   setAnimationComplete(true);
                 }
               };
-              
+
               // Start settle animation
               requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
@@ -168,7 +169,7 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
                 });
               });
             }
-          }, shuffleDuration / maxShuffles); // Space out shuffles for CSS transitions
+          }, shuffleIntervalMs);
         }
       } catch (err) {
         console.error('Error fetching match results:', err);
@@ -179,7 +180,7 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
     };
 
     fetchResults();
-    
+
     // Cleanup function
     return () => {
       if (animationFrameId !== null) {
@@ -207,13 +208,13 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
 
   if (loading) {
     return (
-      <div 
-        className="fixed z-50 flex items-center justify-center p-4 sm:p-8" 
-        style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          right: 0, 
+      <div
+        className="fixed z-50 flex items-center justify-center p-4 sm:p-8"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
           bottom: 0,
           width: '100vw',
           height: '100vh',
@@ -230,13 +231,13 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
   }
 
   return (
-    <div 
-      className="fixed z-50 flex items-center justify-center p-4 sm:p-8" 
-      style={{ 
-        position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
+    <div
+      className="fixed z-50 flex items-center justify-center p-4 sm:p-8"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
         bottom: 0,
         width: '100vw',
         height: '100vh',
@@ -264,9 +265,9 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
         ))}
       </div>
 
-      <div 
-        className="relative z-10 bg-white rounded-lg border-4 border-gray-800 shadow-2xl overflow-visible" 
-        style={{ 
+      <div
+        className="relative z-10 bg-white rounded-lg border-4 border-gray-800 shadow-2xl overflow-visible"
+        style={{
           width: '100%',
           maxWidth: '56rem',
           margin: '0 auto',
@@ -310,7 +311,7 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
               const actualRank = results.findIndex(r => r.id === result.id) + 1;
               const isMe = result.session_id === sessionId;
               const isRevealed = revealedPlayers.has(result.id);
-              
+
               // Get position offset for smooth animation
               const positionOffset = playerPositions.get(result.id) || 0;
               const targetIndex = results.findIndex(r => r.id === result.id);
@@ -332,7 +333,7 @@ export default function MatchResults({ matchId, sessionId }: MatchResultsProps) 
                     opacity: isRevealed ? 1 : 0.8,
                     width: 'calc(100% - 0px)',
                     willChange: 'transform', // Optimize for animation
-                    transition: isShuffling ? 'transform 0.3s ease-out' : 'none', // CSS transition only during shuffle
+                    transition: isShuffling ? 'transform 0.55s cubic-bezier(0.33, 1, 0.68, 1)' : 'none',
                   }}
                 >
                   <div className="flex items-center space-x-4">
