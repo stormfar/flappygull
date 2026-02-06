@@ -794,7 +794,7 @@ export default function LobbyScreen({ onStartGame }: LobbyScreenProps) {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xl font-black text-gray-900" style={{ fontFamily: 'monospace' }}>
-                    👥 PLAYERS ({players.length}/{currentMatch?.max_players || 8})
+                    👥 PLAYERS ({players.length}/{currentMatch?.max_players || 20})
                   </h3>
                   {isHost && (
                     <span className="rounded border-2 border-yellow-600 bg-yellow-400 px-3 py-1 text-xs font-black text-yellow-900" style={{ fontFamily: 'monospace' }}>

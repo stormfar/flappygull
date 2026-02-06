@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS matches (
   match_code VARCHAR(6) UNIQUE NOT NULL, -- 6-character join code
   seed INTEGER NOT NULL, -- RNG seed for deterministic obstacles
   status VARCHAR(20) NOT NULL DEFAULT 'waiting', -- waiting, active, completed
-  max_players INTEGER NOT NULL DEFAULT 8,
+  max_players INTEGER NOT NULL DEFAULT 20,
   started_at TIMESTAMPTZ,
   ended_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
